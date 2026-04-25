@@ -109,6 +109,28 @@ def get_cached(lookup_key: str) -> SongFingerprints | None:
         return None
 
 
+def get_song_metadata(lookup_key: str) -> tuple[str, str]:
+    """Fetch just title and artist for a cached song (no blob decompression)."""
+    client = _get_client()
+    if client is None:
+        return "Unknown", "Unknown"
+
+    try:
+        resp = (
+            client.table("song_cache")
+            .select("title,artist")
+            .eq("lookup_key", lookup_key)
+            .limit(1)
+            .execute()
+        )
+        rows = resp.data
+        if not rows:
+            return "Unknown", "Unknown"
+        return rows[0].get("title", "Unknown"), rows[0].get("artist", "Unknown")
+    except Exception:
+        return "Unknown", "Unknown"
+
+
 def store_cached(
     lookup_key: str,
     fingerprints: SongFingerprints,

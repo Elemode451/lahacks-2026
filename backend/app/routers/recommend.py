@@ -16,7 +16,7 @@ from app.models.schemas import (
     SongInfo,
     SongMatch,
 )
-from app.services.song_cache import find_similar_songs, get_cached, make_lookup_key
+from app.services.song_cache import find_similar_songs, get_cached, get_song_metadata, make_lookup_key
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["recommendations"])
@@ -60,11 +60,12 @@ async def get_recommendations(req: RecommendRequest):
         n=req.n,
     )
 
-    # Build response
+    # Build response with real metadata from cache
+    title, artist = await asyncio.to_thread(get_song_metadata, cache_key)
     target_info = SongInfo(
         song_id=cache_key,
-        title="Unknown",
-        artist="Unknown",
+        title=title,
+        artist=artist,
     )
     recommendations = [
         SongMatch(
