@@ -107,6 +107,13 @@ async def analyze_cluster(req: ClusterAnalyzeRequest):
             playlist_id, len(playlist_tracks),
         )
 
+    MAX_SONGS = 20
+    if len(all_cluster_songs) > MAX_SONGS:
+        logger.warning(
+            "Truncating %d songs to %d", len(all_cluster_songs), MAX_SONGS,
+        )
+        all_cluster_songs = all_cluster_songs[:MAX_SONGS]
+
     if not all_cluster_songs:
         raise HTTPException(400, "Provide at least one song or a playlist URL")
 
