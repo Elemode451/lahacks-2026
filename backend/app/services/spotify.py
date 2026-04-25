@@ -91,6 +91,72 @@ async def get_track_info(spotify_id: str) -> SpotifySearchResult | None:
     )
 
 
+async def get_playlist_tracks(playlist_id: str) -> list[SpotifySearchResult]:
+    """Fetch all tracks from a Spotify playlist by ID.
+
+    Handles pagination for playlists with >100 tracks.
+    """
+    token = await _get_token()
+    tracks: list[SpotifySearchResult] = []
+    url = f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks"
+    params: dict[str, int | str] = {"limit": 100, "fields": "items(track(id,name,artists,album(name,images),preview_url)),next"}
+
+    async with httpx.AsyncClient() as client:
+        while url:
+            resp = await client.get(
+                url,
+                headers={"Authorization": f"Bearer {token}"},
+                params=params,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+            for item in data.get("items", []):
+                track = item.get("track")
+                if not track or not track.get("id"):
+                    continue
+                images = track.get("album", {}).get("images", [])
+                tracks.append(
+                    SpotifySearchResult(
+                        spotify_id=track["id"],
+                        title=track["name"],
+                        artist=", ".join(a["name"] for a in track.get("artists", [])),
+                        album=track.get("album", {}).get("name"),
+                        album_art_url=images[0]["url"] if images else None,
+                        preview_url=track.get("preview_url"),
+                    )
+                )
+
+            url = data.get("next")
+            params = {}  # next URL includes params already
+
+    logger.info("Fetched %d tracks from Spotify playlist %s", len(tracks), playlist_id)
+    return tracks
+
+
+def parse_playlist_id(url: str) -> str | None:
+    """Extract playlist ID from a Spotify playlist URL.
+
+    Accepts formats like:
+    - https://open.spotify.com/playlist/6c0GMeXcOG8odEO2UwCprx
+    - https://open.spotify.com/playlist/6c0GMeXcOG8odEO2UwCprx?si=abc123
+    - spotify:playlist:6c0GMeXcOG8odEO2UwCprx
+    """
+    import re
+
+    # URL format
+    m = re.search(r"open\.spotify\.com/playlist/([a-zA-Z0-9]+)", url)
+    if m:
+        return m.group(1)
+
+    # URI format
+    m = re.search(r"spotify:playlist:([a-zA-Z0-9]+)", url)
+    if m:
+        return m.group(1)
+
+    return None
+
+
 def _yt_search_sync(query: str) -> str | None:
     """Synchronous YouTube search via yt-dlp (runs in thread pool)."""
     import yt_dlp

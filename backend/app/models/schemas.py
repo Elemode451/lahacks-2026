@@ -90,16 +90,26 @@ class ClusterSong(BaseModel):
 class ClusterAnalyzeRequest(BaseModel):
     """Request body for the unified analysis endpoint.
 
-    Submit 1–20 songs. Each song needs at least a `youtube_url` or `spotify_id`.
+    Submit songs in one of two ways:
+    - **`songs`** — a list of 1–20 individual songs (YouTube URL or Spotify ID each)
+    - **`spotify_playlist_url`** — a Spotify playlist URL; all tracks are resolved automatically
+
+    You can combine both: playlist tracks are appended to the `songs` list.
     Songs that have been analyzed before are served from cache (instant).
     New songs require TRIBE v2 GPU inference (~30–60s per song).
     """
 
     songs: list[ClusterSong] = Field(
-        ...,
-        min_length=1,
+        default=[],
         max_length=20,
-        description="List of songs to analyze. At least one required.",
+        description="List of individual songs to analyze.",
+    )
+    spotify_playlist_url: str | None = Field(
+        None,
+        description=(
+            "Spotify playlist URL (e.g. 'https://open.spotify.com/playlist/6c0GMeXcOG8odEO2UwCprx'). "
+            "All tracks in the playlist are resolved and analyzed."
+        ),
     )
     title: str = Field("My Cluster", description="Optional label for this analysis.")
 

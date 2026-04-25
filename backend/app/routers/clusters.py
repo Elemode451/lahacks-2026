@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException
 from app.models.schemas import (
     ClusterAnalyzeRequest,
     ClusterAnalyzeResponse,
+    ClusterSong,
     PairwiseSimilarity,
     SongInfo,
 )
@@ -18,7 +19,7 @@ from app.services.audio import cleanup_audio, download_youtube_audio
 from app.services.recommendations import compare_songs, final_similarity
 from app.config import settings
 from app.services.song_cache import get_cached, make_lookup_key
-from app.services.spotify import get_track_info, search_youtube_for_track
+from app.services.spotify import get_playlist_tracks, get_track_info, parse_playlist_id, search_youtube_for_track
 from app.services.tribe import (
     SongFingerprints,
     aggregate_fingerprints,
@@ -82,11 +83,38 @@ async def analyze_cluster(req: ClusterAnalyzeRequest):
     // Segment i: allSegments.slice(i * 20484, (i + 1) * 20484)
     ```
     """
+    # Resolve Spotify playlist into individual songs
+    all_cluster_songs = list(req.songs)
+    if req.spotify_playlist_url:
+        playlist_id = parse_playlist_id(req.spotify_playlist_url)
+        if not playlist_id:
+            raise HTTPException(400, "Could not parse Spotify playlist URL")
+
+        playlist_tracks = await get_playlist_tracks(playlist_id)
+        if not playlist_tracks:
+            raise HTTPException(404, "Playlist is empty or could not be fetched")
+
+        for track in playlist_tracks:
+            all_cluster_songs.append(
+                ClusterSong(
+                    spotify_id=track.spotify_id,
+                    title=track.title,
+                    artist=track.artist,
+                )
+            )
+        logger.info(
+            "Resolved Spotify playlist %s → %d tracks",
+            playlist_id, len(playlist_tracks),
+        )
+
+    if not all_cluster_songs:
+        raise HTTPException(400, "Provide at least one song or a playlist URL")
+
     songs: list[SongInfo] = []
     fingerprints: list[SongFingerprints] = []
     audio_paths: list = []
 
-    for cluster_song in req.songs:
+    for cluster_song in all_cluster_songs:
         try:
             title = cluster_song.title or "Unknown"
             artist = cluster_song.artist or "Unknown"
