@@ -15,7 +15,7 @@ import logging
 
 import numpy as np
 
-from app.models.schemas import RegionScores
+from app.models.schemas import RegionScores, SongInfo
 from app.services.tribe import (
     N_VERTICES,
     TEMPORAL_RESAMPLE_N,
@@ -166,3 +166,80 @@ def store_cached(
 
     except Exception:
         logger.exception("Failed to cache results for %s", lookup_key)
+
+
+_REGION_KEYS = [
+    "auditory", "superior_temporal", "temporo_parietal",
+    "inferior_frontal", "multisensory", "whole_cortex",
+]
+
+
+def find_similar_songs(
+    target_scores: RegionScores,
+    exclude_key: str | None = None,
+    n: int = 10,
+) -> list[dict]:
+    """Find similar songs by cosine similarity on region scores.
+
+    Fetches only the lightweight region_scores JSONB column (~100 bytes per
+    row) from Supabase — no fingerprint blob decompression needed. Computes
+    cosine similarity on the 6 region activation values.
+
+    Returns a list of dicts: lookup_key, title, artist, region_scores, similarity.
+    """
+    client = _get_client()
+    if client is None:
+        return []
+
+    try:
+        resp = (
+            client.table("song_cache")
+            .select("lookup_key,title,artist,region_scores")
+            .not_.is_("region_scores", "null")
+            .execute()
+        )
+        rows = resp.data
+        if not rows:
+            return []
+
+        t = target_scores.model_dump()
+        t_vec = [t[r] for r in _REGION_KEYS]
+        t_mag = sum(v ** 2 for v in t_vec) ** 0.5
+        if t_mag == 0:
+            return []
+
+        results: list[dict] = []
+        for row in rows:
+            key = row["lookup_key"]
+            if key == exclude_key:
+                continue
+
+            rs = row.get("region_scores") or {}
+            r_vec = [float(rs.get(r, 0.0)) for r in _REGION_KEYS]
+            r_mag = sum(v ** 2 for v in r_vec) ** 0.5
+
+            if r_mag == 0:
+                continue
+
+            dot = sum(a * b for a, b in zip(t_vec, r_vec))
+            sim = dot / (t_mag * r_mag)
+
+            results.append({
+                "lookup_key": key,
+                "title": row.get("title", "Unknown"),
+                "artist": row.get("artist", "Unknown"),
+                "region_scores": rs,
+                "similarity": round(sim, 4),
+            })
+
+        results.sort(key=lambda x: x["similarity"], reverse=True)
+        logger.info(
+            "Recommendation query: %d candidates, returning top %d (best: %.4f)",
+            len(results), min(n, len(results)),
+            results[0]["similarity"] if results else 0.0,
+        )
+        return results[:n]
+
+    except Exception:
+        logger.exception("Failed to find similar songs")
+        return []

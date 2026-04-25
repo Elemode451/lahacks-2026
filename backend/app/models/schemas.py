@@ -282,12 +282,52 @@ class ClusterAnalyzeResponse(BaseModel):
 
 
 class RecommendRequest(BaseModel):
-    fingerprint_id: str
-    n: int = 20
+    """Request for song recommendations based on brain-response similarity.
+
+    Provide either a YouTube URL or Spotify ID of the target song (must have
+    been analyzed previously via `/clusters/analyze`). The engine compares
+    the target's brain fingerprint against all cached songs and returns the
+    top-N most similar by cortical response.
+    """
+
+    youtube_url: str | None = Field(
+        None,
+        description="YouTube URL of the target song (must already be in the cache).",
+    )
+    spotify_id: str | None = Field(
+        None,
+        description="Spotify track ID of the target song (must already be in the cache).",
+    )
+    n: int = Field(
+        10,
+        ge=1,
+        le=50,
+        description="Number of recommendations to return (default 10, max 50).",
+    )
 
 
 class RecommendResponse(BaseModel):
-    recommendations: list[SongMatch] = []
+    """Recommendations ranked by brain-response similarity.
+
+    Each recommendation includes a weighted similarity score (0–1) computed as:
+    `0.5 × global + 0.3 × temporal_arc + 0.2 × peak`
+
+    Higher scores mean the song activates similar brain regions in a similar
+    temporal pattern.
+    """
+
+    target: SongInfo | None = Field(
+        None,
+        description="The target song that recommendations are based on.",
+    )
+    catalog_size: int = Field(
+        0,
+        description="Total number of songs in the cached catalog.",
+    )
+    recommendations: list[SongMatch] = Field(
+        default=[],
+        description="Top-N most similar songs, ranked by brain-response similarity.",
+    )
 
 
 # ── Compare ─────────────────────────────────────────────────────────────────
