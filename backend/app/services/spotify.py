@@ -91,6 +91,99 @@ async def get_track_info(spotify_id: str) -> SpotifySearchResult | None:
     )
 
 
+async def get_playlist_tracks(playlist_id: str) -> list[SpotifySearchResult]:
+    """Fetch all tracks from a public Spotify playlist by ID.
+
+    WORKAROUND (client-credentials auth limitation):
+    ─────────────────────────────────────────────────
+    Spotify's playlist endpoints (/playlists/{id}/items, /playlists/{id}/tracks)
+    require **user-level OAuth** (Authorization Code Flow) — they return 401/403
+    with client-credentials tokens.
+
+    As a temporary workaround, this function:
+      1. Scrapes the public playlist page on open.spotify.com for track IDs
+      2. Fetches each track's metadata via GET /tracks/{id} (which DOES work
+         with client credentials)
+
+    This only works for **public playlists**. Private/collaborative playlists
+    will return 0 tracks.
+
+    TODO(spotify-oauth): Once we add "Connect Spotify" (user OAuth login),
+    replace this with a direct call to GET /playlists/{id}/items using the
+    user's access token. This will:
+      - Support private playlists
+      - Be faster (batch endpoint instead of per-track fetches)
+      - Be more reliable (no HTML scraping)
+    See: https://developer.spotify.com/documentation/web-api/reference/get-playlists-items
+    """
+    async with httpx.AsyncClient() as client:
+        tracks = await _scrape_playlist_tracks(playlist_id, client)
+
+    logger.info("Fetched %d tracks from Spotify playlist %s", len(tracks), playlist_id)
+    return tracks
+
+
+async def _scrape_playlist_tracks(
+    playlist_id: str,
+    client: httpx.AsyncClient,
+) -> list[SpotifySearchResult]:
+    """Extract track IDs from a public Spotify playlist page, then fetch metadata.
+
+    TEMPORARY: This exists because client-credentials auth cannot access
+    playlist track listing endpoints. Replace with direct API call once
+    Spotify OAuth (user login) is implemented.
+    See get_playlist_tracks() docstring for details.
+    """
+    import re
+
+    # Step 1: Scrape the public playlist page for track IDs (no auth needed)
+    resp = await client.get(
+        f"https://open.spotify.com/playlist/{playlist_id}",
+        headers={"User-Agent": "Mozilla/5.0"},
+    )
+    resp.raise_for_status()
+    html = resp.text
+
+    track_ids = list(dict.fromkeys(re.findall(r'/track/([a-zA-Z0-9]{22})', html)))
+    logger.info("Scraped %d track IDs from playlist page %s", len(track_ids), playlist_id)
+
+    if not track_ids:
+        return []
+
+    # Step 2: Fetch each track's metadata via the single-track API endpoint
+    # (GET /tracks/{id} works with client credentials unlike the batch/playlist endpoints)
+    results: list[SpotifySearchResult] = []
+    for track_id in track_ids:
+        info = await get_track_info(track_id)
+        if info:
+            results.append(info)
+    return results
+
+
+
+def parse_playlist_id(url: str) -> str | None:
+    """Extract playlist ID from a Spotify playlist URL.
+
+    Accepts formats like:
+    - https://open.spotify.com/playlist/6c0GMeXcOG8odEO2UwCprx
+    - https://open.spotify.com/playlist/6c0GMeXcOG8odEO2UwCprx?si=abc123
+    - spotify:playlist:6c0GMeXcOG8odEO2UwCprx
+    """
+    import re
+
+    # URL format
+    m = re.search(r"open\.spotify\.com/playlist/([a-zA-Z0-9]+)", url)
+    if m:
+        return m.group(1)
+
+    # URI format
+    m = re.search(r"spotify:playlist:([a-zA-Z0-9]+)", url)
+    if m:
+        return m.group(1)
+
+    return None
+
+
 def _yt_search_sync(query: str) -> str | None:
     """Synchronous YouTube search via yt-dlp (runs in thread pool)."""
     import yt_dlp
@@ -109,18 +202,54 @@ def _yt_search_sync(query: str) -> str | None:
     return None
 
 
+async def _yt_search_http(query: str) -> str | None:
+    """Fallback YouTube search via HTTP scraping (no yt-dlp search needed)."""
+    import re
+    import urllib.parse
+
+    search_url = "https://www.youtube.com/results?" + urllib.parse.urlencode({"search_query": query})
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            search_url,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+        )
+        resp.raise_for_status()
+        # Extract first video ID from search results page
+        match = re.search(r'"videoId":"([a-zA-Z0-9_-]{11})"', resp.text)
+        if match:
+            return f"https://www.youtube.com/watch?v={match.group(1)}"
+    return None
+
+
 async def search_youtube_for_track(title: str, artist: str) -> str | None:
     """Search YouTube for an audio version of a Spotify track.
 
-    Uses yt-dlp's built-in search to find the best match.
-    The blocking yt-dlp call is offloaded to a thread pool.
+    Tries yt-dlp search first, falls back to HTTP scraping if yt-dlp
+    returns no results (common when yt-dlp is outdated).
     Returns a YouTube URL or None.
     """
     import asyncio
 
     query = f"{artist} - {title} audio"
+    logger.info("Searching YouTube for: %s", query)
+
+    # Try yt-dlp search first
     try:
-        return await asyncio.to_thread(_yt_search_sync, query)
+        url = await asyncio.to_thread(_yt_search_sync, query)
+        if url:
+            logger.info("YouTube match (yt-dlp) for '%s': %s", query, url)
+            return url
     except Exception:
-        logger.exception("YouTube search failed for %s - %s", artist, title)
+        logger.warning("yt-dlp search errored for: %s", query)
+
+    # Fallback: HTTP scrape of YouTube search results
+    try:
+        url = await _yt_search_http(query)
+        if url:
+            logger.info("YouTube match (http) for '%s': %s", query, url)
+            return url
+    except Exception:
+        logger.exception("YouTube HTTP search also failed for: %s", query)
+
+    logger.warning("YouTube search returned no results for: %s", query)
     return None
