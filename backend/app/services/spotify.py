@@ -106,39 +106,36 @@ async def get_playlist_tracks(playlist_id: str) -> list[SpotifySearchResult]:
     headers = {"Authorization": f"Bearer {token}"}
 
     async with httpx.AsyncClient() as client:
-        # Try main playlist endpoint first (sometimes includes tracks)
+        # Fetch playlist with market param (required to get tracks with client credentials)
         resp = await client.get(
             f"https://api.spotify.com/v1/playlists/{playlist_id}",
             headers=headers,
+            params={"market": "US"},
         )
         resp.raise_for_status()
         playlist_data = resp.json()
         tracks_data = playlist_data.get("tracks")
 
-        # If tracks not embedded, fetch them directly
+        # If tracks not embedded, try /tracks endpoint with market
         if not isinstance(tracks_data, dict) or not tracks_data.get("items"):
             logger.info("Playlist %s: tracks not in main response, fetching /tracks", playlist_id)
             try:
                 resp = await client.get(
                     f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks",
                     headers=headers,
-                    params={"limit": 100},
+                    params={"limit": 100, "market": "US"},
                 )
                 resp.raise_for_status()
                 tracks_data = resp.json()
             except httpx.HTTPStatusError as e:
                 logger.warning(
-                    "Playlist %s /tracks failed (%s), trying with fields param",
+                    "Playlist %s /tracks also failed (%s), falling back to page scrape",
                     playlist_id, e.response.status_code,
                 )
-                # Last resort: request main endpoint with explicit fields
-                resp = await client.get(
-                    f"https://api.spotify.com/v1/playlists/{playlist_id}",
-                    headers=headers,
-                    params={"fields": "tracks.items(track(id,name,artists,album)),tracks.next"},
-                )
-                resp.raise_for_status()
-                tracks_data = resp.json().get("tracks", {})
+                # Fall back to scraping the public playlist page for track IDs
+                tracks = await _scrape_playlist_tracks(playlist_id, client, headers)
+                logger.info("Fetched %d tracks from Spotify playlist %s (via scrape)", len(tracks), playlist_id)
+                return tracks
 
         # Process initial batch
         _extract_tracks(tracks_data.get("items", []), tracks)
@@ -154,6 +151,56 @@ async def get_playlist_tracks(playlist_id: str) -> list[SpotifySearchResult]:
 
     logger.info("Fetched %d tracks from Spotify playlist %s", len(tracks), playlist_id)
     return tracks
+
+
+async def _scrape_playlist_tracks(
+    playlist_id: str,
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+) -> list[SpotifySearchResult]:
+    """Fallback: scrape the public Spotify playlist page for track IDs,
+    then fetch each track's metadata via the tracks API."""
+    import re
+
+    resp = await client.get(
+        f"https://open.spotify.com/playlist/{playlist_id}",
+        headers={"User-Agent": "Mozilla/5.0"},
+    )
+    resp.raise_for_status()
+    html = resp.text
+
+    # Extract track IDs from the page (links like /track/XXXXX)
+    track_ids = list(dict.fromkeys(re.findall(r'/track/([a-zA-Z0-9]{22})', html)))
+    logger.info("Scraped %d track IDs from playlist page %s", len(track_ids), playlist_id)
+
+    if not track_ids:
+        return []
+
+    # Batch fetch track metadata (up to 50 per request via /tracks endpoint)
+    results: list[SpotifySearchResult] = []
+    for i in range(0, len(track_ids), 50):
+        batch = track_ids[i:i + 50]
+        resp = await client.get(
+            "https://api.spotify.com/v1/tracks",
+            headers=headers,
+            params={"ids": ",".join(batch), "market": "US"},
+        )
+        resp.raise_for_status()
+        for track in resp.json().get("tracks", []):
+            if not track or not track.get("id"):
+                continue
+            images = track.get("album", {}).get("images", [])
+            results.append(
+                SpotifySearchResult(
+                    spotify_id=track["id"],
+                    title=track["name"],
+                    artist=", ".join(a["name"] for a in track.get("artists", [])),
+                    album=track.get("album", {}).get("name"),
+                    album_art_url=images[0]["url"] if images else None,
+                    preview_url=track.get("preview_url"),
+                )
+            )
+    return results
 
 
 def _extract_tracks(
