@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.env
+.venv/
+venv/
+*.wav
+*.mp3
+*.flac
+*.ogg
+app/static/*
+!app/static/.gitkeep
+/cache/

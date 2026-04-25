@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "seratune-backend"
+version = "0.1.0"
+description = "SeraTune - Music discovery through predicted brain-response similarity"
+requires-python = ">=3.11"
+
+dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.30.0",
+  "python-multipart>=0.0.9",
+  "supabase>=2.0.0",
+  "httpx>=0.27.0",
+  "numpy>=2.0.0",
+  "scikit-learn>=1.5.0",
+  "yt-dlp>=2024.0.0",
+  "pydantic>=2.0.0",
+  "pydantic-settings>=2.0.0",
+  "python-jose[cryptography]>=3.3.0",
+  "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+tribe = [
+  "tribev2",
+  "torch>=2.5.1",
+]
+dev = [
+  "pytest",
+  "ruff",
+]
