@@ -116,30 +116,87 @@ class PairwiseSimilarity(BaseModel):
 class ClusterAnalyzeResponse(BaseModel):
     """Response containing aggregate brain activation data for visualization.
 
-    ## Data Format
+    ## Compression & Encoding Format
 
-    ### Vertex Data (base64-encoded raw float32 bytes)
+    ### Overview
 
-    Two fields contain the full cortical vertex activation data for 3D brain
-    rendering. Both are **base64-encoded raw little-endian float32 bytes** (NOT
-    gzipped — the HTTP response itself is gzip-compressed by the server).
+    The response contains two large binary fields (`combined_fingerprint_b64`
+    and `temporal_fingerprints_b64`) alongside small JSON fields. The binary
+    fields use a specific encoding pipeline:
 
-    **Decoding in JavaScript:**
+    ```
+    numpy float32 array
+      → .tobytes()          (raw little-endian IEEE 754 float32, 4 bytes per value)
+      → base64.b64encode()  (ASCII-safe string, ~33% size overhead)
+      → JSON string field   (transmitted in the JSON response body)
+      → HTTP gzip           (server compresses the entire JSON response)
+    ```
+
+    ### Size Breakdown
+
+    | Field | Raw binary | Base64 string | After HTTP gzip |
+    |---|---|---|---|
+    | `combined_fingerprint_b64` | 81,936 bytes (20,484 × 4) | ~109 KB | ~20–40 KB |
+    | `temporal_fingerprints_b64` | 2,458,080 bytes (30 × 20,484 × 4) | ~3.2 MB | ~500 KB–1 MB |
+    | Other JSON fields | — | ~5 KB | ~2 KB |
+    | **Total response** | — | **~3.3 MB** | **~500 KB–1 MB** |
+
+    The base64 strings are NOT individually gzipped — they are raw float32
+    bytes encoded as base64. The HTTP response itself is gzip-compressed by
+    the server (via the `Accept-Encoding: gzip` header), which compresses
+    the entire JSON body including the base64 strings.
+
+    ### Byte Layout
+
+    **`combined_fingerprint_b64`** — flat array of 20,484 little-endian float32:
+    ```
+    [vertex_0: 4 bytes] [vertex_1: 4 bytes] ... [vertex_20483: 4 bytes]
+    ```
+
+    **`temporal_fingerprints_b64`** — 30 segments packed contiguously:
+    ```
+    [segment_0: 20484 × 4 bytes] [segment_1: 20484 × 4 bytes] ... [segment_29: 20484 × 4 bytes]
+    ```
+    Total: 30 × 20,484 × 4 = 2,458,080 bytes → ~3,277,440 base64 characters.
+
+    ### Decoding in JavaScript
+
     ```js
     // Combined fingerprint — 20,484 floats (one per cortical vertex)
-    const fpBytes = Uint8Array.from(atob(data.combined_fingerprint_b64), c => c.charCodeAt(0));
+    const fpBytes = Uint8Array.from(
+      atob(data.combined_fingerprint_b64), c => c.charCodeAt(0)
+    );
     const vertices = new Float32Array(fpBytes.buffer);
     // vertices.length === 20484
     // Map each vertex value to a color on your brain mesh (e.g. hot colormap)
 
     // Temporal fingerprints — 30 segments × 20,484 floats for scrubbing
-    const tempBytes = Uint8Array.from(atob(data.temporal_fingerprints_b64), c => c.charCodeAt(0));
+    const tempBytes = Uint8Array.from(
+      atob(data.temporal_fingerprints_b64), c => c.charCodeAt(0)
+    );
     const allSegments = new Float32Array(tempBytes.buffer);
     // allSegments.length === 30 * 20484 = 614520
-    // To get segment i: allSegments.slice(i * 20484, (i + 1) * 20484)
+    // To get segment i:
+    const VERTICES = 20484;
+    const segmentI = allSegments.slice(i * VERTICES, (i + 1) * VERTICES);
     ```
 
-    ### Brain Regions
+    ### Decoding in Python
+
+    ```python
+    import base64, numpy as np
+
+    # Combined fingerprint
+    fp = np.frombuffer(base64.b64decode(data["combined_fingerprint_b64"]),
+                       dtype=np.float32)  # shape: (20484,)
+
+    # Temporal fingerprints
+    temporal = np.frombuffer(base64.b64decode(data["temporal_fingerprints_b64"]),
+                             dtype=np.float32).reshape(30, 20484)
+    # temporal[i] = vertex activations for segment i
+    ```
+
+    ## Brain Regions
 
     The fsaverage5 mesh has ~20,484 cortical vertices. Key region vertex ranges:
     - **auditory**: vertices 3000–4500
@@ -148,13 +205,19 @@ class ClusterAnalyzeResponse(BaseModel):
     - **inferior_frontal**: vertices 8000–9200
     - **multisensory**: vertices 9200–10242
 
-    ### Timeline (for scrubbing)
+    ## Timeline (for scrubbing)
 
-    `combined_timeline` contains 30 resampled time segments. Each segment has
-    per-region activation scores. Use this to render a timeline chart that the
-    user can scrub through. When the user scrubs to position `i`, update the
-    brain mesh with `temporal_fingerprints[i]` (the i-th slice of the decoded
-    `temporal_fingerprints_b64`).
+    `combined_timeline` contains exactly 30 resampled time segments. Each
+    segment is a dict mapping region name → activation score (float). Use
+    this to render a timeline chart the user can scrub through. When the user
+    scrubs to position `i`, update the brain mesh with `temporal_fingerprints[i]`
+    (the i-th slice of the decoded `temporal_fingerprints_b64`). The indices
+    match 1:1: `combined_timeline[i]` summarizes the same time window as
+    `temporal_fingerprints_b64` segment `i`.
+
+    `peak_segment` indicates which of the 30 segments has the strongest
+    overall brain activation — useful for auto-seeking to the most
+    interesting moment.
     """
 
     analysis_id: str = Field(..., description="Unique ID for this analysis.")
