@@ -57,9 +57,31 @@ async def list_my_analyses(authorization: str | None = Header(None)):
     ]
 
 
+def _try_get_user_id(authorization: str | None) -> str | None:
+    """Try to extract user ID from token. Returns None if not authenticated."""
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization.removeprefix("Bearer ")
+    try:
+        sb = get_supabase()
+        user = sb.auth.get_user(token)
+        if user is None or user.user is None:
+            return None
+        return user.user.id
+    except Exception:
+        return None
+
+
 @router.get("/analyses/{analysis_id}", response_model=AnalysisDetail)
-async def get_analysis(analysis_id: str):
-    """Get a specific analysis by ID (public if shared, otherwise requires auth)."""
+async def get_analysis(
+    analysis_id: str,
+    authorization: str | None = Header(None),
+):
+    """Get a specific analysis by ID.
+
+    Public if the analysis has a share_slug. Otherwise requires auth
+    and the requesting user must be the owner.
+    """
     sb = get_supabase()
 
     result = (
@@ -74,6 +96,13 @@ async def get_analysis(analysis_id: str):
         raise HTTPException(404, "Analysis not found")
 
     row = result.data
+
+    # If not shared, require auth and ownership
+    if not row.get("share_slug"):
+        user_id = _try_get_user_id(authorization)
+        if user_id is None or user_id != row.get("owner_id"):
+            raise HTTPException(403, "This analysis is private")
+
     return AnalysisDetail(
         analysis_id=row["id"],
         kind=row["kind"],

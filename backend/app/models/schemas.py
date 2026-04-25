@@ -28,9 +28,24 @@ class RegionScores(BaseModel):
     whole_cortex: float = 0.0
 
 
+class SimilarityComponents(BaseModel):
+    """Breakdown of the weighted similarity score."""
+    global_score: float = 0.0
+    temporal_arc: float = 0.0
+    peak: float = 0.0
+
+
+class RegionDifference(BaseModel):
+    region: str
+    left: float
+    right: float
+    difference: float
+
+
 class SongMatch(BaseModel):
     song: SongInfo
     similarity_score: float
+    components: SimilarityComponents | None = None
     matching_regions: list[str] = []
 
 
@@ -47,6 +62,8 @@ class CreatorAnalyzeResponse(BaseModel):
     song: SongInfo
     fingerprint_id: str
     region_scores: RegionScores
+    timeline_region_scores: list[dict[str, float]] = []
+    peak_segment: int = 0
     frames: list[str] = []
     top_matches: list[SongMatch] = []
     summary: str = ""
@@ -72,6 +89,7 @@ class PairwiseSimilarity(BaseModel):
     song_a: str
     song_b: str
     similarity: float
+    components: SimilarityComponents | None = None
 
 
 class ClusterAnalyzeResponse(BaseModel):
@@ -106,8 +124,13 @@ class CompareRequest(BaseModel):
 
 
 class CompareResponse(BaseModel):
+    left_song: SongInfo | None = None
+    right_song: SongInfo | None = None
     similarity_score: float
-    region_comparison: dict[str, dict[str, float]] = {}
+    similarity_label: str = ""  # "high" | "moderate" | "low"
+    components: SimilarityComponents
+    matching_regions: list[str] = []
+    largest_differences: list[RegionDifference] = []
     summary: str = ""
 
 

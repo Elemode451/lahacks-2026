@@ -9,7 +9,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.models.schemas import CreatorAnalyzeResponse, SongInfo
 from app.services.audio import cleanup_audio, save_uploaded_audio
-from app.services.tribe import get_fingerprint
+from app.services.tribe import analyze_audio
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/creator", tags=["creator"])
@@ -28,8 +28,8 @@ async def analyze_creator_track(
     """Analyze an uploaded track in creator mode.
 
     The uploaded song is NOT stored in the catalog database.
-    It gets the same TRIBE v2 analysis as listener mode, but results
-    are ephemeral (tied to this analysis only).
+    Returns the same TRIBE v2 analysis as listener mode: global fingerprint,
+    temporal fingerprints, peak fingerprint, region scores, and timeline.
     """
     if audio.content_type and not audio.content_type.startswith("audio/"):
         raise HTTPException(400, f"Expected audio file, got {audio.content_type}")
@@ -41,9 +41,7 @@ async def analyze_creator_track(
     audio_path = await save_uploaded_audio(file_bytes, audio.filename or "upload.wav")
 
     try:
-        fingerprint_id, fingerprint, region_scores = await get_fingerprint(
-            audio_path, song_id=None
-        )
+        song_fp = await analyze_audio(audio_path)
 
         song_id = f"creator_{uuid.uuid4().hex[:12]}"
         song = SongInfo(
@@ -62,21 +60,28 @@ async def analyze_creator_track(
 
         # Generate summary
         top_regions = sorted(
-            region_scores.model_dump().items(),
+            song_fp.region_scores.model_dump().items(),
             key=lambda x: x[1],
             reverse=True,
         )[:3]
-        region_names = [r[0].replace("_", " ") for r in top_regions if r[0] != "whole_cortex"]
+        region_names = [
+            r[0].replace("_", " ")
+            for r in top_regions
+            if r[0] != "whole_cortex"
+        ]
         summary = (
             f"This track is predicted to strongly engage "
-            f"{', '.join(region_names[:2])} regions."
+            f"{', '.join(region_names[:2])} regions. "
+            f"Peak activation occurs at segment {song_fp.peak_index}."
         )
 
         result = CreatorAnalyzeResponse(
             analysis_id=analysis_id,
             song=song,
-            fingerprint_id=fingerprint_id,
-            region_scores=region_scores,
+            fingerprint_id=song_fp.fingerprint_id,
+            region_scores=song_fp.region_scores,
+            timeline_region_scores=song_fp.timeline_region_scores,
+            peak_segment=song_fp.peak_index,
             frames=frames,
             top_matches=top_matches,
             summary=summary,
@@ -88,5 +93,4 @@ async def analyze_creator_track(
         return result
 
     finally:
-        # Clean up uploaded audio — creator tracks are not stored
         cleanup_audio(audio_path)

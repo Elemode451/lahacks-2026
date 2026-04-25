@@ -15,11 +15,13 @@ from app.models.schemas import (
 )
 from app.services.audio import cleanup_audio, download_youtube_audio
 from app.services.recommendations import (
+    compare_songs,
     compute_cluster_coherence,
+    final_similarity,
     find_odd_one_out,
 )
 from app.services.spotify import get_track_info, search_youtube_for_track
-from app.services.tribe import cosine_similarity, get_fingerprint
+from app.services.tribe import SongFingerprints, analyze_audio
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/clusters", tags=["clusters"])
@@ -35,19 +37,18 @@ async def analyze_cluster(req: ClusterAnalyzeRequest):
     3. Download audio via yt-dlp.
     4. Run TRIBE v2 (or mock) fingerprinting.
 
-    Then compute cluster coherence, find the odd-one-out, and generate
-    recommendations from the catalog.
+    Then compute cluster coherence using weighted similarity
+    (0.5 global + 0.3 temporal arc + 0.2 peak).
     """
     if len(req.songs) < 2:
         raise HTTPException(400, "Need at least 2 songs for a cluster")
 
     songs: list[SongInfo] = []
-    fingerprints = []
+    fingerprints: list[SongFingerprints] = []
     audio_paths = []
 
     for cluster_song in req.songs:
         try:
-            # Resolve metadata
             title = cluster_song.title or "Unknown"
             artist = cluster_song.artist or "Unknown"
             youtube_url = cluster_song.youtube_url
@@ -58,7 +59,6 @@ async def analyze_cluster(req: ClusterAnalyzeRequest):
                     title = info.title
                     artist = info.artist
 
-                # Find YouTube audio if no direct URL provided
                 if not youtube_url:
                     youtube_url = await search_youtube_for_track(title, artist)
 
@@ -66,7 +66,6 @@ async def analyze_cluster(req: ClusterAnalyzeRequest):
                 logger.warning("No audio source for %s - %s, skipping", artist, title)
                 continue
 
-            # Download audio
             audio_path = download_youtube_audio(youtube_url)
             audio_paths.append(audio_path)
 
@@ -79,9 +78,8 @@ async def analyze_cluster(req: ClusterAnalyzeRequest):
             )
             songs.append(song_info)
 
-            # Get fingerprint
-            _, fingerprint, _ = await get_fingerprint(audio_path, song_id=song_id)
-            fingerprints.append(fingerprint)
+            song_fp = await analyze_audio(audio_path)
+            fingerprints.append(song_fp)
 
         except Exception:
             logger.exception(
@@ -89,65 +87,60 @@ async def analyze_cluster(req: ClusterAnalyzeRequest):
             )
             continue
 
-    if len(songs) < 2:
-        raise HTTPException(
-            400,
-            "Could not process enough songs. Need at least 2 successful.",
-        )
-
-    # Compute cluster coherence
-    coherence_score, coherence_label = compute_cluster_coherence(fingerprints)
-
-    # Pairwise similarities
-    pairwise: list[PairwiseSimilarity] = []
-    for i in range(len(songs)):
-        for j in range(i + 1, len(songs)):
-            sim = cosine_similarity(fingerprints[i], fingerprints[j])
-            pairwise.append(
-                PairwiseSimilarity(
-                    song_a=songs[i].song_id,
-                    song_b=songs[j].song_id,
-                    similarity=round(sim, 4),
-                )
+    try:
+        if len(songs) < 2:
+            raise HTTPException(
+                400,
+                "Could not process enough songs. Need at least 2 successful.",
             )
 
-    # Find odd one out
-    odd_one_out = find_odd_one_out(songs, fingerprints)
+        coherence_score, coherence_label = compute_cluster_coherence(fingerprints)
 
-    # Generate summary
-    summary = (
-        f"These {len(songs)} songs form a {coherence_label} resonance cluster "
-        f"(coherence: {coherence_score:.2f}). "
-    )
-    if coherence_label == "strong":
-        summary += "They are predicted to produce similar cortical-response patterns."
-    elif coherence_label == "moderate":
-        summary += "They share some predicted cortical-response patterns but have notable differences."
-    else:
-        summary += "They produce quite different predicted cortical-response patterns."
+        # Pairwise similarities with full component breakdown
+        pairwise: list[PairwiseSimilarity] = []
+        for i in range(len(songs)):
+            for j in range(i + 1, len(songs)):
+                components = compare_songs(fingerprints[i], fingerprints[j])
+                score = final_similarity(components)
+                pairwise.append(
+                    PairwiseSimilarity(
+                        song_a=songs[i].song_id,
+                        song_b=songs[j].song_id,
+                        similarity=score,
+                        components=components,
+                    )
+                )
 
-    if odd_one_out:
-        summary += f" '{odd_one_out.title}' is the most dissimilar song in the set."
+        odd_one_out = find_odd_one_out(songs, fingerprints)
 
-    analysis_id = f"analysis_{uuid.uuid4().hex[:12]}"
+        summary = (
+            f"These {len(songs)} songs form a {coherence_label} resonance cluster "
+            f"(coherence: {coherence_score:.2f}). "
+        )
+        if coherence_label == "strong":
+            summary += "They are predicted to produce similar cortical-response patterns."
+        elif coherence_label == "moderate":
+            summary += "They share some predicted cortical-response patterns but have notable differences."
+        else:
+            summary += "They produce quite different predicted cortical-response patterns."
 
-    # TODO: add recommendations from catalog
-    # TODO: generate brain visualization frames
+        if odd_one_out:
+            summary += f" '{odd_one_out.title}' is the most dissimilar song in the set."
 
-    result = ClusterAnalyzeResponse(
-        analysis_id=analysis_id,
-        coherence_score=coherence_score,
-        coherence_label=coherence_label,
-        songs=songs,
-        pairwise_similarities=pairwise,
-        odd_one_out=odd_one_out,
-        recommendations=[],
-        frames=[],
-        summary=summary,
-    )
+        analysis_id = f"analysis_{uuid.uuid4().hex[:12]}"
 
-    # Clean up downloaded audio
-    for p in audio_paths:
-        cleanup_audio(p)
+        return ClusterAnalyzeResponse(
+            analysis_id=analysis_id,
+            coherence_score=coherence_score,
+            coherence_label=coherence_label,
+            songs=songs,
+            pairwise_similarities=pairwise,
+            odd_one_out=odd_one_out,
+            recommendations=[],
+            frames=[],
+            summary=summary,
+        )
 
-    return result
+    finally:
+        for p in audio_paths:
+            cleanup_audio(p)

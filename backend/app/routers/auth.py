@@ -7,7 +7,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 
 from app.models.schemas import AuthResponse, LoginRequest, SignUpRequest
-from app.services.supabase_client import get_supabase
+from app.services.supabase_client import get_supabase, get_supabase_admin
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -25,9 +25,9 @@ async def signup(req: SignUpRequest):
         if user is None:
             raise HTTPException(400, "Signup failed")
 
-        # Store display name in profiles table
+        # Store display name in profiles table (uses admin client to bypass RLS)
         if req.display_name:
-            sb.table("profiles").upsert(
+            get_supabase_admin().table("profiles").upsert(
                 {"user_id": user.id, "display_name": req.display_name}
             ).execute()
 

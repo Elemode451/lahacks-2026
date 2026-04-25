@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import time
 
 import httpx
 
@@ -13,12 +14,13 @@ from app.models.schemas import SpotifySearchResult
 logger = logging.getLogger(__name__)
 
 _token: str | None = None
+_token_expires_at: float = 0.0
 
 
 async def _get_token() -> str:
-    """Get a Spotify client-credentials access token (cached in memory)."""
-    global _token
-    if _token is not None:
+    """Get a Spotify client-credentials access token, refreshing on expiry."""
+    global _token, _token_expires_at
+    if _token is not None and time.time() < _token_expires_at:
         return _token
 
     creds = f"{settings.spotify_client_id}:{settings.spotify_client_secret}"
@@ -31,7 +33,9 @@ async def _get_token() -> str:
             data={"grant_type": "client_credentials"},
         )
         resp.raise_for_status()
-        _token = resp.json()["access_token"]
+        data = resp.json()
+        _token = data["access_token"]
+        _token_expires_at = time.time() + data.get("expires_in", 3600) - 60
         return _token
 
 
