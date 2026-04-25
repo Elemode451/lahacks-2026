@@ -212,8 +212,14 @@ async def search_youtube_for_track(title: str, artist: str) -> str | None:
     import asyncio
 
     query = f"{artist} - {title} audio"
+    logger.info("Searching YouTube for: %s", query)
     try:
-        return await asyncio.to_thread(_yt_search_sync, query)
+        url = await asyncio.to_thread(_yt_search_sync, query)
+        if url:
+            logger.info("YouTube match for '%s': %s", query, url)
+        else:
+            logger.warning("YouTube search returned no results for: %s", query)
+        return url
     except Exception:
         logger.exception("YouTube search failed for %s - %s", artist, title)
     return None
