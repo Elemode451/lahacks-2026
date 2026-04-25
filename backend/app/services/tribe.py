@@ -139,12 +139,26 @@ def derive_fingerprints(preds: np.ndarray) -> SongFingerprints:
     )
 
 
-async def analyze_audio(audio_path: Path) -> SongFingerprints:
+async def analyze_audio(
+    audio_path: Path,
+    *,
+    cache_key: str | None = None,
+    title: str = "Unknown",
+    artist: str = "Unknown",
+) -> SongFingerprints:
     """Run TRIBE v2 on an audio file and return all fingerprint representations.
+
+    If *cache_key* is provided, the result is stored in the Supabase cache
+    after successful inference.  Callers are responsible for checking the
+    cache before calling this function.
 
     In mock mode, generates structured fake data.
     In real mode, calls the TRIBE inference worker.
     """
+    import asyncio
+
+    from app.services.song_cache import store_cached
+
     if settings.use_mock_tribe:
         logger.info("Using MOCK TRIBE analysis for %s", audio_path)
         preds = _mock_preds(seed=str(audio_path))
@@ -170,7 +184,21 @@ async def analyze_audio(audio_path: Path) -> SongFingerprints:
         preds = np.array(data["preds"], dtype=np.float32)
 
     logger.info("Received preds %s from worker", preds.shape)
-    return derive_fingerprints(preds)
+
+    fingerprints = derive_fingerprints(preds)
+
+    # Store in cache for next time (offload to thread to avoid blocking)
+    if cache_key:
+        await asyncio.to_thread(
+            store_cached,
+            cache_key,
+            fingerprints,
+            title=title,
+            artist=artist,
+            inference_time_s=data.get("inference_time_s"),
+        )
+
+    return fingerprints
 
 
 def resample_sequence(

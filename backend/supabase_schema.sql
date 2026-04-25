@@ -60,11 +60,33 @@ CREATE TABLE IF NOT EXISTS analyses (
 CREATE INDEX IF NOT EXISTS idx_analyses_owner ON analyses(owner_id);
 CREATE INDEX IF NOT EXISTS idx_analyses_share_slug ON analyses(share_slug);
 
+-- ── Song Cache ──────────────────────────────────────────────────────────────
+-- Caches TRIBE inference results per song so repeat queries are instant.
+-- Keyed by a lookup key (youtube URL or spotify ID).
+
+CREATE TABLE IF NOT EXISTS song_cache (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    lookup_key TEXT UNIQUE NOT NULL,     -- youtube URL or spotify:<id>
+    title TEXT NOT NULL DEFAULT 'Unknown',
+    artist TEXT NOT NULL DEFAULT 'Unknown',
+    fingerprints_b64gz TEXT NOT NULL,    -- gzip+base64 packed fingerprints (32, 20484)
+    fingerprint_id TEXT,                 -- original fingerprint ID
+    preds_shape INT[] NOT NULL,          -- shape of packed matrix
+    region_scores JSONB NOT NULL,        -- per-region activation scores
+    timeline_scores JSONB,               -- per-segment region scores for scrubbing
+    peak_index INT DEFAULT 0,            -- peak segment index
+    inference_time_s FLOAT,              -- how long inference took
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_song_cache_lookup ON song_cache(lookup_key);
+
 -- ── Row Level Security ─────────────────────────────────────────────────────
 
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE songs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE analyses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE song_cache ENABLE ROW LEVEL SECURITY;
 
 -- Profiles: users can read/update their own
 CREATE POLICY profiles_select ON profiles FOR SELECT USING (true);
@@ -73,6 +95,11 @@ CREATE POLICY profiles_update ON profiles FOR UPDATE USING (auth.uid() = user_id
 -- Songs: public read, service-key write
 CREATE POLICY songs_select ON songs FOR SELECT USING (true);
 CREATE POLICY songs_insert ON songs FOR INSERT WITH CHECK (true);
+
+-- Song Cache: public read/write (service key used in practice)
+CREATE POLICY song_cache_select ON song_cache FOR SELECT USING (true);
+CREATE POLICY song_cache_insert ON song_cache FOR INSERT WITH CHECK (true);
+CREATE POLICY song_cache_update ON song_cache FOR UPDATE USING (true);
 
 -- Analyses: owner can CRUD, shared analyses are public-read
 CREATE POLICY analyses_select ON analyses FOR SELECT
