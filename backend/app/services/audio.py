@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import os
 import uuid
+import httpx
+import tempfile
 from pathlib import Path
 
 from app.config import settings
@@ -59,6 +61,67 @@ def download_youtube_audio(url: str) -> Path:
     logger.info("Downloaded YouTube audio to %s", wav_path)
     return wav_path
 
+def download_spotify_preview(url: str) -> Path | None:
+    try:
+        cache = _ensure_cache_dir()
+        file_id = uuid.uuid4().hex[:12]
+        temp_mp3 = cache / f"{file_id}_temp.mp3"
+        wav_path = cache / f"{file_id}.wav"
+
+        resp = httpx.get(url, timeout=10)
+        if resp.status_code != 200:
+            return None
+
+        temp_mp3.write_bytes(resp.content)
+
+        # Convert MP3 to WAV using ffmpeg (standard for audio pipelines)
+        import subprocess
+        subprocess.run([
+            "ffmpeg", "-i", str(temp_mp3), 
+            "-ar", "44100", "-ac", "1", str(wav_path)
+        ], check=True, capture_output=True)
+
+        # Clean up the temp mp3
+        temp_mp3.unlink()
+
+        return wav_path
+    except Exception as e:
+        logger.warning("Spotify preview conversion failed: %s", e)
+        return None
+    
+def get_audio_for_track(track: dict) -> Path:
+    """
+    1. Try Spotify preview
+    2. Fallback to YouTube
+    3. Fail only if both fail
+    """
+
+    # Spotify
+    preview_url = track.get("preview_url")
+
+    if preview_url:
+        logger.info("Trying Spotify preview...")
+        path = download_spotify_preview(preview_url)
+
+        if path:
+            return path
+
+        logger.info("Spotify failed, falling back to YouTube")
+
+    # Youtube
+    from app.services.spotify import search_youtube_for_track
+
+    youtube_url = search_youtube_for_track(
+        track.get("artist", ""),
+        track.get("name", "")
+    )
+
+    if youtube_url:
+        logger.info("Trying YouTube fallback...")
+        return download_youtube_audio(youtube_url)
+
+    # Failure 
+    raise Exception("No audio source found (Spotify + YouTube failed)")
 
 async def save_uploaded_audio(file_bytes: bytes, filename: str) -> Path:
     """Save an uploaded audio file to the cache directory. Returns the path."""
