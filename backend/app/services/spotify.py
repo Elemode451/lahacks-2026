@@ -106,48 +106,17 @@ async def get_playlist_tracks(playlist_id: str) -> list[SpotifySearchResult]:
     headers = {"Authorization": f"Bearer {token}"}
 
     async with httpx.AsyncClient() as client:
-        # Fetch playlist with market param (required to get tracks with client credentials)
-        resp = await client.get(
-            f"https://api.spotify.com/v1/playlists/{playlist_id}",
-            headers=headers,
-            params={"market": "US"},
-        )
-        resp.raise_for_status()
-        playlist_data = resp.json()
-        tracks_data = playlist_data.get("tracks")
+        # Use the current /items endpoint (the old /tracks endpoint is deprecated)
+        url: str | None = f"https://api.spotify.com/v1/playlists/{playlist_id}/items"
+        params: dict[str, str | int] | None = {"limit": 50, "market": "US"}
 
-        # If tracks not embedded, try /tracks endpoint with market
-        if not isinstance(tracks_data, dict) or not tracks_data.get("items"):
-            logger.info("Playlist %s: tracks not in main response, fetching /tracks", playlist_id)
-            try:
-                resp = await client.get(
-                    f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks",
-                    headers=headers,
-                    params={"limit": 100, "market": "US"},
-                )
-                resp.raise_for_status()
-                tracks_data = resp.json()
-            except httpx.HTTPStatusError as e:
-                logger.warning(
-                    "Playlist %s /tracks also failed (%s), falling back to page scrape",
-                    playlist_id, e.response.status_code,
-                )
-                # Fall back to scraping the public playlist page for track IDs
-                tracks = await _scrape_playlist_tracks(playlist_id, client, headers)
-                logger.info("Fetched %d tracks from Spotify playlist %s (via scrape)", len(tracks), playlist_id)
-                return tracks
-
-        # Process initial batch
-        _extract_tracks(tracks_data.get("items", []), tracks)
-
-        # Follow pagination
-        next_url = tracks_data.get("next")
-        while next_url:
-            resp = await client.get(next_url, headers=headers)
+        while url:
+            resp = await client.get(url, headers=headers, params=params)
             resp.raise_for_status()
-            page = resp.json()
-            _extract_tracks(page.get("items", []), tracks)
-            next_url = page.get("next")
+            data = resp.json()
+            _extract_tracks(data.get("items", []), tracks)
+            url = data.get("next")
+            params = None  # next URL includes params
 
     logger.info("Fetched %d tracks from Spotify playlist %s", len(tracks), playlist_id)
     return tracks
