@@ -16,6 +16,12 @@ const BrainScene = dynamic(() => import("@/components/BrainScene"), {
 
 type Phase = "landing" | "importing" | "processing" | "dashboard";
 
+const springTransition = {
+  type: "spring" as const,
+  stiffness: 200,
+  damping: 25,
+};
+
 export default function Home() {
   const [phase, setPhase] = useState<Phase>("landing");
   const [brainFlashing, setBrainFlashing] = useState(false);
@@ -49,74 +55,60 @@ export default function Home() {
   return (
     <LayoutGroup>
       <div className="h-full flex flex-col relative overflow-hidden bg-bg">
-        {/* Color Bends Background */}
-        <div className="absolute inset-0 z-0 pointer-events-none">
-          <ColorBends
-            ref={colorBendsRef}
-            colors={["#FFFDF5", "#e8e4d9", "#d4cfc3", "#0d3b66"]}
-            speed={0.08}
-            frequency={0.6}
-            warpStrength={0.3}
-            scale={1.8}
-            intensity={1.2}
-            noise={0.05}
-            iterations={2}
-            bandWidth={4}
-            transparent={false}
-            mouseInfluence={0.3}
-            parallax={0.2}
-          />
-        </div>
+        {/* Color Bends Background — rendered after brain to avoid WebGL context conflicts */}
+        {isDashboard && (
+          <div className="absolute inset-0 z-0 pointer-events-none opacity-15">
+            <ColorBends
+              ref={colorBendsRef}
+              colors={["#FFFDF5", "#f5f0e4", "#ede5d4", "#e0d8c8"]}
+              speed={0.04}
+              frequency={0.3}
+              warpStrength={0.15}
+              scale={2.2}
+              intensity={0.8}
+              noise={0.02}
+              iterations={2}
+              bandWidth={6}
+              transparent={false}
+              mouseInfluence={0.15}
+              parallax={0.1}
+            />
+          </div>
+        )}
 
         <div className="relative z-10 flex flex-col h-full">
           <TopBar compact={isDashboard} />
 
           <div className="flex-1 flex relative overflow-hidden">
-            {/* Left: Brain Visualization */}
-            <motion.div
-              layout
-              className="relative flex items-center justify-center"
-              animate={{
+            {/* Left: Brain Visualization Area */}
+            <div
+              className="relative flex items-center justify-center transition-all duration-700"
+              style={{
                 width: isDashboard ? "55%" : "100%",
-              }}
-              transition={{
-                type: "spring",
-                stiffness: 200,
-                damping: 25,
+                transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
               }}
             >
-              {/* Head Silhouette */}
-              <motion.div
-                layout
-                className="absolute"
-                animate={{
-                  width: isDashboard ? "70%" : "55%",
-                  height: isDashboard ? "85%" : "80%",
-                  x: isDashboard ? "-5%" : "5%",
-                }}
-                transition={{
-                  type: "spring",
-                  stiffness: 200,
-                  damping: 25,
+              {/* Head Silhouette — centered in container */}
+              <div
+                className="absolute transition-all duration-700"
+                style={{
+                  width: isDashboard ? "75%" : "min(50%, 420px)",
+                  height: isDashboard ? "90%" : "85%",
+                  transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
                 }}
               >
                 <HeadSilhouette className="w-full h-full opacity-95" />
-              </motion.div>
+              </div>
 
-              {/* 3D Brain */}
-              <motion.div
-                layout
-                className={`absolute ${brainFlashing ? "brain-flash" : ""}`}
-                animate={{
-                  width: isDashboard ? "45%" : "35%",
-                  height: isDashboard ? "55%" : "50%",
-                  x: isDashboard ? "10%" : "15%",
-                  y: isDashboard ? "-8%" : "-5%",
-                }}
-                transition={{
-                  type: "spring",
-                  stiffness: 200,
-                  damping: 25,
+              {/* 3D Brain — overlapping the cranium area */}
+              <div
+                className={`absolute z-10 transition-all duration-700 ${brainFlashing ? "brain-flash" : ""}`}
+                style={{
+                  width: isDashboard ? "28%" : "min(20%, 170px)",
+                  height: isDashboard ? "35%" : "30%",
+                  marginTop: isDashboard ? "-14%" : "-16%",
+                  marginLeft: isDashboard ? "2%" : "3%",
+                  transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
                 }}
               >
                 <BrainScene
@@ -125,28 +117,24 @@ export default function Home() {
                   interactive={isDashboard}
                   timePosition={timePosition}
                 />
-              </motion.div>
+              </div>
 
-              {/* Import Button */}
+              {/* Import Button — centered below head */}
               <AnimatePresence>
                 {phase === "landing" && (
                   <motion.div
                     className="absolute z-30"
-                    style={{ top: "18%", right: "22%" }}
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    transition={{
-                      type: "spring",
-                      stiffness: 300,
-                      damping: 25,
-                    }}
+                    style={{ bottom: "8%", left: "50%", transform: "translateX(-50%)" }}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                    transition={springTransition}
                   >
                     <ImportButton onClick={handleImportClick} />
                   </motion.div>
                 )}
               </AnimatePresence>
-            </motion.div>
+            </div>
 
             {/* Right: Analysis Panel */}
             <AnimatePresence>
@@ -155,11 +143,7 @@ export default function Home() {
                   initial={{ width: 0, opacity: 0 }}
                   animate={{ width: "45%", opacity: 1 }}
                   exit={{ width: 0, opacity: 0 }}
-                  transition={{
-                    type: "spring",
-                    stiffness: 200,
-                    damping: 25,
-                  }}
+                  transition={springTransition}
                   className="relative border-l border-navy/[0.06] bg-bg/80 backdrop-blur-sm"
                 >
                   <AnalysisPanel onTimeSeek={handleTimeSeek} />

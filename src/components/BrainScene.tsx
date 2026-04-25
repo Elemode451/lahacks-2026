@@ -23,7 +23,7 @@ export default function BrainScene({
   return (
     <div className={className}>
       <Canvas
-        camera={{ position: [0, 0, 2.8], fov: 40 }}
+        camera={{ position: [0, 0.1, 3.2], fov: 38 }}
         gl={{ antialias: true, alpha: true }}
         style={{ background: "transparent" }}
         dpr={[1, 2]}

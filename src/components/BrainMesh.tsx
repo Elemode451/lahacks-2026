@@ -67,7 +67,7 @@ function createBrainGeometry(): THREE.BufferGeometry {
 
     positions.setXYZ(i, sx * r * 1.15, sy * r * 1.0, sz * r * 1.1);
 
-    const baseGray = 0.82 + wrinkle1 * 1.5;
+    const baseGray = 0.78 + wrinkle1 * 1.8;
 
     const limbicHeat =
       Math.exp(-Math.pow(phi + 0.2, 2) * 6) *
@@ -81,7 +81,7 @@ function createBrainGeometry(): THREE.BufferGeometry {
       Math.exp(-Math.pow(phi + 0.4, 2) * 10) *
       Math.exp(-Math.pow(Math.abs(theta) - Math.PI * 0.5, 2) * 5);
 
-    const heat = Math.max(limbicHeat, prefrontalHeat * 0.7, auditoryCool * 0.5);
+    const heat = Math.min(1, Math.max(limbicHeat, prefrontalHeat * 0.8, auditoryCool * 0.6) * 1.4);
 
     const hotR = 249 / 255;
     const hotG = 87 / 255;
