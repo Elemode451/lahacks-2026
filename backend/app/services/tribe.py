@@ -150,7 +150,7 @@ async def analyze_audio(audio_path: Path) -> SongFingerprints:
     # Real TRIBE worker call
     import httpx
 
-    async with httpx.AsyncClient(timeout=180.0) as client:
+    async with httpx.AsyncClient(timeout=600.0) as client:
         with open(audio_path, "rb") as f:
             resp = await client.post(
                 f"{settings.tribe_worker_url}/analyze",
