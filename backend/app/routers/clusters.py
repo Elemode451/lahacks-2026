@@ -37,15 +37,50 @@ router = APIRouter(prefix="/clusters", tags=["clusters"])
 async def analyze_cluster(req: ClusterAnalyzeRequest):
     """Analyze one or more songs and return aggregate brain activation data.
 
-    For each song:
-    1. Check Supabase cache (skip download + inference if cached).
-    2. Resolve Spotify metadata (if spotify_id provided).
-    3. Find a YouTube source for the audio.
-    4. Download audio via yt-dlp.
-    5. Run TRIBE v2 (or mock) fingerprinting.
+    ## Pipeline
 
-    Then aggregate all fingerprints into a single combined brain response
-    and return the full vertex data for 3D visualization + scrubbing.
+    For each song the backend:
+    1. Checks the **Supabase cache** — if this song was analyzed before, its
+       fingerprints are loaded instantly (no GPU needed).
+    2. Resolves **Spotify metadata** (if `spotify_id` is provided).
+    3. Finds a **YouTube source** for the audio (auto-search if only Spotify ID given).
+    4. Downloads audio via **yt-dlp**.
+    5. Runs **TRIBE v2** inference on a remote GPU worker (~30–60 s per song).
+    6. Caches the result in Supabase for future instant retrieval.
+
+    After all songs are processed, fingerprints are **aggregated** (averaged)
+    into a single combined brain response.
+
+    ## Response Overview
+
+    | Field | Type | Size | Purpose |
+    |---|---|---|---|
+    | `combined_fingerprint_b64` | base64 string | ~109 KB | 20,484 float32 vertex activations for brain mesh coloring |
+    | `temporal_fingerprints_b64` | base64 string | ~3.2 MB | 30 × 20,484 float32 for timeline scrubbing |
+    | `combined_region_scores` | JSON object | ~100 B | Per-region activation (auditory, temporal, etc.) |
+    | `combined_timeline` | JSON array | ~2 KB | 30 segments × 6 region scores for timeline chart |
+    | `vibe_description` | string | ~200 B | Human-readable brain activation interpretation |
+    | `pairwise_similarities` | JSON array | varies | Song-to-song similarity (only when >1 song) |
+
+    Total response: **~3.3 MB JSON**, **~500 KB–1 MB** with HTTP gzip compression.
+
+    ## Frontend Decoding (JavaScript)
+
+    ```js
+    // Decode combined fingerprint (20,484 floats)
+    const fpBytes = Uint8Array.from(
+      atob(data.combined_fingerprint_b64), c => c.charCodeAt(0)
+    );
+    const vertices = new Float32Array(fpBytes.buffer);
+    // vertices[i] → activation for cortical vertex i on fsaverage5 mesh
+
+    // Decode temporal scrubbing data (30 segments × 20,484 floats)
+    const tempBytes = Uint8Array.from(
+      atob(data.temporal_fingerprints_b64), c => c.charCodeAt(0)
+    );
+    const allSegments = new Float32Array(tempBytes.buffer);
+    // Segment i: allSegments.slice(i * 20484, (i + 1) * 20484)
+    ```
     """
     songs: list[SongInfo] = []
     fingerprints: list[SongFingerprints] = []
