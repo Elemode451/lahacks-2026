@@ -407,7 +407,7 @@ def describe_vibe(region_scores: RegionScores) -> str:
     if not descriptions:
         return "The predicted cortical response is relatively uniform across brain regions."
 
-    overall_intensity = scores.get("whole_cortex", sum(scores.values()) / len(scores))
+    overall_intensity = region_scores.whole_cortex
     if overall_intensity >= 0.04:
         intensity_word = "powerfully"
     elif overall_intensity >= 0.02:
