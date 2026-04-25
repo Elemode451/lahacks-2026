@@ -193,15 +193,12 @@ async def analyze_audio(
 
     # Store in cache for next time
     if cache_key:
-        region_dict = fingerprints.region_scores.model_dump()
-        inference_time = data.get("inference_time_s")
         store_cached(
             cache_key,
-            preds,
+            fingerprints,
             title=title,
             artist=artist,
-            region_scores=region_dict,
-            inference_time_s=inference_time,
+            inference_time_s=data.get("inference_time_s"),
         )
 
     return fingerprints

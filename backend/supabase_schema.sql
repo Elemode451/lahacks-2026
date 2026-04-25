@@ -69,9 +69,11 @@ CREATE TABLE IF NOT EXISTS song_cache (
     lookup_key TEXT UNIQUE NOT NULL,     -- youtube URL or spotify:<id>
     title TEXT NOT NULL DEFAULT 'Unknown',
     artist TEXT NOT NULL DEFAULT 'Unknown',
-    preds_b64gz TEXT NOT NULL,           -- gzip+base64 encoded numpy preds matrix
-    preds_shape INT[] NOT NULL,          -- e.g. {246, 20484}
+    fingerprints_b64gz TEXT NOT NULL,    -- gzip+base64 packed fingerprints (32, 20484)
+    fingerprint_id TEXT,                 -- original fingerprint ID
+    preds_shape INT[] NOT NULL,          -- shape of packed matrix
     region_scores JSONB NOT NULL,        -- per-region activation scores
+    peak_index INT DEFAULT 0,            -- peak segment index
     inference_time_s FLOAT,              -- how long inference took
     created_at TIMESTAMPTZ DEFAULT now()
 );
