@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS song_cache (
     fingerprint_id TEXT,                 -- original fingerprint ID
     preds_shape INT[] NOT NULL,          -- shape of packed matrix
     region_scores JSONB NOT NULL,        -- per-region activation scores
+    timeline_scores JSONB,               -- per-segment region scores for scrubbing
     peak_index INT DEFAULT 0,            -- peak segment index
     inference_time_s FLOAT,              -- how long inference took
     created_at TIMESTAMPTZ DEFAULT now()

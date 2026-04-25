@@ -69,7 +69,7 @@ def get_cached(lookup_key: str) -> SongFingerprints | None:
     try:
         resp = (
             client.table("song_cache")
-            .select("fingerprints_b64gz,region_scores,peak_index,fingerprint_id")
+            .select("fingerprints_b64gz,region_scores,peak_index,fingerprint_id,timeline_scores")
             .eq("lookup_key", lookup_key)
             .limit(1)
             .execute()
@@ -89,6 +89,8 @@ def get_cached(lookup_key: str) -> SongFingerprints | None:
         rs = row.get("region_scores") or {}
         region_scores = RegionScores(**rs)
 
+        timeline = row.get("timeline_scores") or []
+
         fp = SongFingerprints(
             fingerprint_id=row.get("fingerprint_id", "fp_cached"),
             global_fingerprint=global_fp,
@@ -96,7 +98,7 @@ def get_cached(lookup_key: str) -> SongFingerprints | None:
             peak_fingerprint=peak_fp,
             peak_index=row.get("peak_index", 0),
             region_scores=region_scores,
-            timeline_region_scores=[],
+            timeline_region_scores=timeline,
         )
 
         logger.info("Cache HIT for %s", lookup_key)
@@ -137,6 +139,9 @@ def store_cached(
 
         region_dict = fingerprints.region_scores.model_dump()
 
+        # Timeline region scores — list of dicts, one per original segment
+        timeline = fingerprints.timeline_region_scores or []
+
         row = {
             "lookup_key": lookup_key,
             "title": title,
@@ -144,6 +149,7 @@ def store_cached(
             "fingerprints_b64gz": _compress_array(packed),
             "preds_shape": list(packed.shape),
             "region_scores": region_dict,
+            "timeline_scores": timeline,
             "peak_index": fingerprints.peak_index,
             "fingerprint_id": fingerprints.fingerprint_id,
             "inference_time_s": inference_time_s,

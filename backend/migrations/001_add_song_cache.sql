@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS song_cache (
     fingerprint_id TEXT,
     preds_shape INT[] NOT NULL,
     region_scores JSONB NOT NULL,
+    timeline_scores JSONB,
     peak_index INT DEFAULT 0,
     inference_time_s FLOAT,
     created_at TIMESTAMPTZ DEFAULT now()
