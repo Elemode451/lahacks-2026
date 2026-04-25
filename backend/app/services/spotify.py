@@ -202,24 +202,54 @@ def _yt_search_sync(query: str) -> str | None:
     return None
 
 
+async def _yt_search_http(query: str) -> str | None:
+    """Fallback YouTube search via HTTP scraping (no yt-dlp search needed)."""
+    import re
+    import urllib.parse
+
+    search_url = "https://www.youtube.com/results?" + urllib.parse.urlencode({"search_query": query})
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            search_url,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+        )
+        resp.raise_for_status()
+        # Extract first video ID from search results page
+        match = re.search(r'"videoId":"([a-zA-Z0-9_-]{11})"', resp.text)
+        if match:
+            return f"https://www.youtube.com/watch?v={match.group(1)}"
+    return None
+
+
 async def search_youtube_for_track(title: str, artist: str) -> str | None:
     """Search YouTube for an audio version of a Spotify track.
 
-    Uses yt-dlp's built-in search to find the best match.
-    The blocking yt-dlp call is offloaded to a thread pool.
+    Tries yt-dlp search first, falls back to HTTP scraping if yt-dlp
+    returns no results (common when yt-dlp is outdated).
     Returns a YouTube URL or None.
     """
     import asyncio
 
     query = f"{artist} - {title} audio"
     logger.info("Searching YouTube for: %s", query)
+
+    # Try yt-dlp search first
     try:
         url = await asyncio.to_thread(_yt_search_sync, query)
         if url:
-            logger.info("YouTube match for '%s': %s", query, url)
-        else:
-            logger.warning("YouTube search returned no results for: %s", query)
-        return url
+            logger.info("YouTube match (yt-dlp) for '%s': %s", query, url)
+            return url
     except Exception:
-        logger.exception("YouTube search failed for %s - %s", artist, title)
+        logger.warning("yt-dlp search errored for: %s", query)
+
+    # Fallback: HTTP scrape of YouTube search results
+    try:
+        url = await _yt_search_http(query)
+        if url:
+            logger.info("YouTube match (http) for '%s': %s", query, url)
+            return url
+    except Exception:
+        logger.exception("YouTube HTTP search also failed for: %s", query)
+
+    logger.warning("YouTube search returned no results for: %s", query)
     return None
