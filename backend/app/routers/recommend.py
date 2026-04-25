@@ -16,7 +16,7 @@ from app.models.schemas import (
     SongInfo,
     SongMatch,
 )
-from app.services.song_cache import find_similar_songs, get_cached, get_song_metadata, make_lookup_key
+from app.services.song_cache import find_similar_songs, get_cached_lightweight, make_lookup_key
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["recommendations"])
@@ -44,28 +44,28 @@ async def get_recommendations(req: RecommendRequest):
     if not cache_key:
         raise HTTPException(400, "Could not build lookup key from provided identifiers")
 
-    # Load target fingerprint from cache (only need region_scores)
-    target_fp = await asyncio.to_thread(get_cached, cache_key)
-    if target_fp is None:
+    # Single lightweight query: region_scores + title + artist (no blob decompression)
+    target_data = await asyncio.to_thread(get_cached_lightweight, cache_key)
+    if target_data is None:
         raise HTTPException(
             404,
             "Target song not found in cache. Analyze it first via /clusters/analyze.",
         )
 
+    target_scores = target_data["region_scores"]
+
     # Find similar songs via lightweight region-score comparison
     similar, catalog_size = await asyncio.to_thread(
         find_similar_songs,
-        target_scores=target_fp.region_scores,
+        target_scores=target_scores,
         exclude_key=cache_key,
         n=req.n,
     )
 
-    # Build response with real metadata from cache
-    title, artist = await asyncio.to_thread(get_song_metadata, cache_key)
     target_info = SongInfo(
         song_id=cache_key,
-        title=title,
-        artist=artist,
+        title=target_data["title"],
+        artist=target_data["artist"],
     )
     recommendations = [
         SongMatch(
@@ -78,7 +78,7 @@ async def get_recommendations(req: RecommendRequest):
             matching_regions=[
                 region for region in r.get("region_scores", {})
                 if abs(
-                    getattr(target_fp.region_scores, region, 0.0)
+                    getattr(target_scores, region, 0.0)
                     - float(r["region_scores"].get(region, 0.0))
                 ) < 0.01
             ],

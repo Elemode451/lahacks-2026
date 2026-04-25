@@ -109,26 +109,37 @@ def get_cached(lookup_key: str) -> SongFingerprints | None:
         return None
 
 
-def get_song_metadata(lookup_key: str) -> tuple[str, str]:
-    """Fetch just title and artist for a cached song (no blob decompression)."""
+def get_cached_lightweight(lookup_key: str) -> dict | None:
+    """Fetch region_scores, title, and artist without decompressing fingerprints.
+
+    Returns a dict with keys: title, artist, region_scores (RegionScores).
+    Returns None if the song isn't cached.
+    """
     client = _get_client()
     if client is None:
-        return "Unknown", "Unknown"
+        return None
 
     try:
         resp = (
             client.table("song_cache")
-            .select("title,artist")
+            .select("title,artist,region_scores")
             .eq("lookup_key", lookup_key)
             .limit(1)
             .execute()
         )
         rows = resp.data
         if not rows:
-            return "Unknown", "Unknown"
-        return rows[0].get("title", "Unknown"), rows[0].get("artist", "Unknown")
+            return None
+        row = rows[0]
+        rs = row.get("region_scores") or {}
+        return {
+            "title": row.get("title", "Unknown"),
+            "artist": row.get("artist", "Unknown"),
+            "region_scores": RegionScores(**rs),
+        }
     except Exception:
-        return "Unknown", "Unknown"
+        logger.exception("Lightweight cache lookup failed for %s", lookup_key)
+        return None
 
 
 def store_cached(

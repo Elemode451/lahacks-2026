@@ -309,11 +309,12 @@ class RecommendRequest(BaseModel):
 class RecommendResponse(BaseModel):
     """Recommendations ranked by brain-response similarity.
 
-    Each recommendation includes a weighted similarity score (0–1) computed as:
-    `0.5 × global + 0.3 × temporal_arc + 0.2 × peak`
+    Each recommendation includes a similarity score (0–1) computed as
+    cosine similarity on the 6 brain-region activation values
+    (auditory, superior_temporal, temporo_parietal, inferior_frontal,
+    multisensory, whole_cortex).
 
-    Higher scores mean the song activates similar brain regions in a similar
-    temporal pattern.
+    Higher scores mean the song activates similar brain regions.
     """
 
     target: SongInfo | None = Field(
