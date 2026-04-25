@@ -19,7 +19,7 @@ type Phase = "landing" | "importing" | "processing" | "dashboard";
 const springTransition = {
   type: "spring" as const,
   stiffness: 200,
-  damping: 25,
+  damping: 28,
 };
 
 export default function Home() {
@@ -55,26 +55,34 @@ export default function Home() {
   return (
     <LayoutGroup>
       <div className="h-full flex flex-col relative overflow-hidden bg-bg">
-        {/* Color Bends Background — rendered after brain to avoid WebGL context conflicts */}
-        {isDashboard && (
-          <div className="absolute inset-0 z-0 pointer-events-none opacity-15">
-            <ColorBends
-              ref={colorBendsRef}
-              colors={["#FFFDF5", "#f5f0e4", "#ede5d4", "#e0d8c8"]}
-              speed={0.04}
-              frequency={0.3}
-              warpStrength={0.15}
-              scale={2.2}
-              intensity={0.8}
-              noise={0.02}
-              iterations={2}
-              bandWidth={6}
-              transparent={false}
-              mouseInfluence={0.15}
-              parallax={0.1}
-            />
-          </div>
-        )}
+        {/* Subtle Color Bends — dashboard only */}
+        <AnimatePresence>
+          {isDashboard && (
+            <motion.div
+              className="absolute inset-0 z-0 pointer-events-none"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.12 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 1 }}
+            >
+              <ColorBends
+                ref={colorBendsRef}
+                colors={["#FFFDF5", "#f5f0e4", "#ede5d4", "#e0d8c8"]}
+                speed={0.03}
+                frequency={0.25}
+                warpStrength={0.12}
+                scale={2.5}
+                intensity={0.7}
+                noise={0.02}
+                iterations={2}
+                bandWidth={6}
+                transparent={false}
+                mouseInfluence={0.1}
+                parallax={0.08}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <div className="relative z-10 flex flex-col h-full">
           <TopBar compact={isDashboard} />
@@ -84,30 +92,32 @@ export default function Home() {
             <div
               className="relative flex items-center justify-center transition-all duration-700"
               style={{
-                width: isDashboard ? "55%" : "100%",
+                width: isDashboard ? "50%" : "100%",
                 transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
               }}
             >
-              {/* Head Silhouette — centered in container */}
+              {/* Head Silhouette */}
               <div
                 className="absolute transition-all duration-700"
                 style={{
-                  width: isDashboard ? "75%" : "min(50%, 420px)",
-                  height: isDashboard ? "90%" : "85%",
+                  width: isDashboard ? "80%" : "min(52%, 440px)",
+                  height: isDashboard ? "92%" : "88%",
                   transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
                 }}
               >
-                <HeadSilhouette className="w-full h-full opacity-95" />
+                <HeadSilhouette className="w-full h-full" />
               </div>
 
-              {/* 3D Brain — overlapping the cranium area */}
+              {/* 3D Brain — overlaid on cranium */}
               <div
                 className={`absolute z-10 transition-all duration-700 ${brainFlashing ? "brain-flash" : ""}`}
                 style={{
-                  width: isDashboard ? "28%" : "min(20%, 170px)",
-                  height: isDashboard ? "35%" : "30%",
-                  marginTop: isDashboard ? "-14%" : "-16%",
-                  marginLeft: isDashboard ? "2%" : "3%",
+                  width: isDashboard ? "32%" : "min(22%, 185px)",
+                  height: isDashboard ? "38%" : "34%",
+                  marginTop: isDashboard ? "-10%" : "-12%",
+                  marginLeft: isDashboard ? "4%" : "5%",
+                  borderRadius: "50%",
+                  overflow: "hidden" as const,
                   transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
                 }}
               >
@@ -119,15 +129,15 @@ export default function Home() {
                 />
               </div>
 
-              {/* Import Button — centered below head */}
+              {/* Import Button */}
               <AnimatePresence>
                 {phase === "landing" && (
                   <motion.div
                     className="absolute z-30"
-                    style={{ bottom: "8%", left: "50%", transform: "translateX(-50%)" }}
-                    initial={{ opacity: 0, y: 10 }}
+                    style={{ bottom: "6%", left: "50%", transform: "translateX(-50%)" }}
+                    initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                    exit={{ opacity: 0, y: -8, scale: 0.95 }}
                     transition={springTransition}
                   >
                     <ImportButton onClick={handleImportClick} />
@@ -141,10 +151,10 @@ export default function Home() {
               {isDashboard && (
                 <motion.div
                   initial={{ width: 0, opacity: 0 }}
-                  animate={{ width: "45%", opacity: 1 }}
+                  animate={{ width: "50%", opacity: 1 }}
                   exit={{ width: 0, opacity: 0 }}
                   transition={springTransition}
-                  className="relative border-l border-navy/[0.06] bg-bg/80 backdrop-blur-sm"
+                  className="relative border-l border-navy/[0.06] overflow-hidden"
                 >
                   <AnalysisPanel onTimeSeek={handleTimeSeek} />
                 </motion.div>
@@ -168,9 +178,9 @@ export default function Home() {
               <motion.div
                 className="fixed inset-0 z-40 flex items-center justify-center"
                 style={{
-                  backgroundColor: "rgba(255, 253, 245, 0.6)",
-                  backdropFilter: "blur(20px)",
-                  WebkitBackdropFilter: "blur(20px)",
+                  backgroundColor: "rgba(255, 253, 245, 0.7)",
+                  backdropFilter: "blur(24px)",
+                  WebkitBackdropFilter: "blur(24px)",
                 }}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -184,10 +194,10 @@ export default function Home() {
                   transition={{ duration: 0.4, delay: 0.1 }}
                   className="text-center"
                 >
-                  <p className="font-body text-navy/60 text-sm tracking-wide">
-                    Extracting TRIBE v2 cortical fingerprints...
+                  <p className="font-body text-navy/50 text-sm tracking-widest uppercase">
+                    Extracting TRIBE v2 cortical fingerprints
                   </p>
-                  <div className="mt-4 flex justify-center gap-1.5">
+                  <div className="mt-5 flex justify-center gap-1.5">
                     {[0, 1, 2].map((i) => (
                       <motion.div
                         key={i}
