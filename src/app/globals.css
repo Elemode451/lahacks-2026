@@ -1,0 +1,80 @@
+@import url("https://api.fontshare.com/v2/css?f[]=zodiak@400,500,600,700&f[]=switzer@400,500,600,700&display=swap");
+@import "tailwindcss";
+
+:root {
+  --bg: #FFFDF5;
+  --navy: #0d3b66;
+  --heatmap-hot: #f95738;
+  --heatmap-mid: #ee964b;
+  --heatmap-low: #f4d35e;
+
+  --font-display: 'Zodiak', Georgia, serif;
+  --font-body: 'Switzer', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-navy: var(--navy);
+  --color-heatmap-hot: var(--heatmap-hot);
+  --color-heatmap-mid: var(--heatmap-mid);
+  --color-heatmap-low: var(--heatmap-low);
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg);
+  color: var(--navy);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.glass {
+  background: rgba(255, 253, 245, 0.55);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+.glass-strong {
+  background: rgba(255, 253, 245, 0.75);
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+::selection {
+  background: rgba(249, 87, 56, 0.2);
+  color: var(--navy);
+}
+
+input:focus, textarea:focus {
+  outline: none;
+  border-color: var(--heatmap-hot);
+}
+
+@keyframes brain-flash {
+  0% { opacity: 1; }
+  15% { opacity: 0.3; filter: brightness(2.5); }
+  30% { opacity: 1; filter: brightness(1); }
+  50% { opacity: 1; }
+  65% { opacity: 0.3; filter: brightness(2.5); }
+  80% { opacity: 1; filter: brightness(1); }
+  100% { opacity: 1; }
+}
+
+.brain-flash {
+  animation: brain-flash 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
