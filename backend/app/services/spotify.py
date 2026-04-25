@@ -120,8 +120,8 @@ async def _scrape_playlist_tracks(
     client: httpx.AsyncClient,
     headers: dict[str, str],
 ) -> list[SpotifySearchResult]:
-    """Fallback: scrape the public Spotify playlist page for track IDs,
-    then fetch each track's metadata via the tracks API."""
+    """Scrape the public Spotify playlist page for track IDs,
+    then fetch each track's metadata via get_track_info (single-track endpoint)."""
     import re
 
     resp = await client.get(
@@ -138,30 +138,12 @@ async def _scrape_playlist_tracks(
     if not track_ids:
         return []
 
-    # Batch fetch track metadata (up to 50 per request via /tracks endpoint)
+    # Fetch each track individually (the single-track endpoint works with client creds)
     results: list[SpotifySearchResult] = []
-    for i in range(0, len(track_ids), 50):
-        batch = track_ids[i:i + 50]
-        resp = await client.get(
-            "https://api.spotify.com/v1/tracks",
-            headers=headers,
-            params={"ids": ",".join(batch), "market": "US"},
-        )
-        resp.raise_for_status()
-        for track in resp.json().get("tracks", []):
-            if not track or not track.get("id"):
-                continue
-            images = track.get("album", {}).get("images", [])
-            results.append(
-                SpotifySearchResult(
-                    spotify_id=track["id"],
-                    title=track["name"],
-                    artist=", ".join(a["name"] for a in track.get("artists", [])),
-                    album=track.get("album", {}).get("name"),
-                    album_art_url=images[0]["url"] if images else None,
-                    preview_url=track.get("preview_url"),
-                )
-            )
+    for track_id in track_ids:
+        info = await get_track_info(track_id)
+        if info:
+            results.append(info)
     return results
 
 
