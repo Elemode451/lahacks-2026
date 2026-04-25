@@ -148,20 +148,14 @@ async def analyze_audio(
 ) -> SongFingerprints:
     """Run TRIBE v2 on an audio file and return all fingerprint representations.
 
-    If *cache_key* is provided and a cached result exists in Supabase, the
-    cached predictions are used instead of calling the worker.  After a
-    successful inference the result is stored in the cache.
+    If *cache_key* is provided, the result is stored in the Supabase cache
+    after successful inference.  Callers are responsible for checking the
+    cache before calling this function.
 
     In mock mode, generates structured fake data.
     In real mode, calls the TRIBE inference worker.
     """
-    from app.services.song_cache import get_cached, store_cached
-
-    # Check cache first (skip in mock mode)
-    if cache_key and not settings.use_mock_tribe:
-        cached = get_cached(cache_key)
-        if cached is not None:
-            return cached
+    from app.services.song_cache import store_cached
 
     if settings.use_mock_tribe:
         logger.info("Using MOCK TRIBE analysis for %s", audio_path)
