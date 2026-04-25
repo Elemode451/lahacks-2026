@@ -91,28 +91,36 @@ async def get_track_info(spotify_id: str) -> SpotifySearchResult | None:
     )
 
 
+def _yt_search_sync(query: str) -> str | None:
+    """Synchronous YouTube search via yt-dlp (runs in thread pool)."""
+    import yt_dlp
+
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "extract_flat": True,
+        "default_search": "ytsearch1",
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        result = ydl.extract_info(query, download=False)
+        if result and "entries" in result and result["entries"]:
+            entry = result["entries"][0]
+            return entry.get("url") or f"https://www.youtube.com/watch?v={entry['id']}"
+    return None
+
+
 async def search_youtube_for_track(title: str, artist: str) -> str | None:
     """Search YouTube for an audio version of a Spotify track.
 
     Uses yt-dlp's built-in search to find the best match.
+    The blocking yt-dlp call is offloaded to a thread pool.
     Returns a YouTube URL or None.
     """
-    query = f"{artist} - {title} audio"
-    # Use ytsearch to get the first result URL
-    try:
-        import yt_dlp
+    import asyncio
 
-        ydl_opts = {
-            "quiet": True,
-            "no_warnings": True,
-            "extract_flat": True,
-            "default_search": "ytsearch1",
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            result = ydl.extract_info(query, download=False)
-            if result and "entries" in result and result["entries"]:
-                entry = result["entries"][0]
-                return entry.get("url") or f"https://www.youtube.com/watch?v={entry['id']}"
+    query = f"{artist} - {title} audio"
+    try:
+        return await asyncio.to_thread(_yt_search_sync, query)
     except Exception:
         logger.exception("YouTube search failed for %s - %s", artist, title)
     return None

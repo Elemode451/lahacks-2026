@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 
@@ -66,7 +67,7 @@ async def analyze_cluster(req: ClusterAnalyzeRequest):
                 logger.warning("No audio source for %s - %s, skipping", artist, title)
                 continue
 
-            audio_path = download_youtube_audio(youtube_url)
+            audio_path = await asyncio.to_thread(download_youtube_audio, youtube_url)
             audio_paths.append(audio_path)
 
             song_id = f"song_{uuid.uuid4().hex[:12]}"
