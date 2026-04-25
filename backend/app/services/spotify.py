@@ -98,8 +98,8 @@ async def get_playlist_tracks(playlist_id: str) -> list[SpotifySearchResult]:
     """
     token = await _get_token()
     tracks: list[SpotifySearchResult] = []
-    url = f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks"
-    params: dict[str, int | str] = {"limit": 100, "fields": "items(track(id,name,artists,album(name,images),preview_url)),next"}
+    url: str | None = f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks"
+    params: dict[str, int | str] | None = {"limit": 100}
 
     async with httpx.AsyncClient() as client:
         while url:
@@ -128,7 +128,7 @@ async def get_playlist_tracks(playlist_id: str) -> list[SpotifySearchResult]:
                 )
 
             url = data.get("next")
-            params = {}  # next URL includes params already
+            params = None  # next URL includes params already
 
     logger.info("Fetched %d tracks from Spotify playlist %s", len(tracks), playlist_id)
     return tracks
