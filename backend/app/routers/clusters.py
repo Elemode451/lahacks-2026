@@ -21,6 +21,7 @@ from app.services.recommendations import (
     final_similarity,
     find_odd_one_out,
 )
+from app.config import settings
 from app.services.song_cache import get_cached, make_lookup_key
 from app.services.spotify import get_track_info, search_youtube_for_track
 from app.services.tribe import SongFingerprints, analyze_audio
@@ -75,7 +76,7 @@ async def analyze_cluster(req: ClusterAnalyzeRequest):
 
             # Check cache before downloading audio
             song_fp = None
-            if cache_key:
+            if cache_key and not settings.use_mock_tribe:
                 song_fp = get_cached(cache_key)
 
             if song_fp is None:
