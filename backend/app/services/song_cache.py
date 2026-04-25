@@ -178,18 +178,19 @@ def find_similar_songs(
     target_scores: RegionScores,
     exclude_key: str | None = None,
     n: int = 10,
-) -> list[dict]:
+) -> tuple[list[dict], int]:
     """Find similar songs by cosine similarity on region scores.
 
     Fetches only the lightweight region_scores JSONB column (~100 bytes per
     row) from Supabase — no fingerprint blob decompression needed. Computes
     cosine similarity on the 6 region activation values.
 
-    Returns a list of dicts: lookup_key, title, artist, region_scores, similarity.
+    Returns (top_n_results, total_catalog_size).
+    Each result dict has: lookup_key, title, artist, region_scores, similarity.
     """
     client = _get_client()
     if client is None:
-        return []
+        return [], 0
 
     try:
         resp = (
@@ -200,13 +201,13 @@ def find_similar_songs(
         )
         rows = resp.data
         if not rows:
-            return []
+            return [], 0
 
         t = target_scores.model_dump()
         t_vec = [t[r] for r in _REGION_KEYS]
         t_mag = sum(v ** 2 for v in t_vec) ** 0.5
         if t_mag == 0:
-            return []
+            return [], len(rows)
 
         results: list[dict] = []
         for row in rows:
@@ -238,8 +239,8 @@ def find_similar_songs(
             len(results), min(n, len(results)),
             results[0]["similarity"] if results else 0.0,
         )
-        return results[:n]
+        return results[:n], len(rows)
 
     except Exception:
         logger.exception("Failed to find similar songs")
-        return []
+        return [], 0

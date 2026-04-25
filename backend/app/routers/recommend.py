@@ -53,7 +53,7 @@ async def get_recommendations(req: RecommendRequest):
         )
 
     # Find similar songs via lightweight region-score comparison
-    similar = await asyncio.to_thread(
+    similar, catalog_size = await asyncio.to_thread(
         find_similar_songs,
         target_scores=target_fp.region_scores,
         exclude_key=cache_key,
@@ -66,8 +66,6 @@ async def get_recommendations(req: RecommendRequest):
         title="Unknown",
         artist="Unknown",
     )
-    # Try to get target metadata from similar results (it's excluded, so
-    # we pull from cache data)
     recommendations = [
         SongMatch(
             song=SongInfo(
@@ -89,7 +87,7 @@ async def get_recommendations(req: RecommendRequest):
 
     return RecommendResponse(
         target=target_info,
-        catalog_size=len(similar) + 1,  # +1 for excluded target
+        catalog_size=catalog_size,
         recommendations=recommendations,
     )
 
