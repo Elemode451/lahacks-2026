@@ -94,41 +94,56 @@ async def get_track_info(spotify_id: str) -> SpotifySearchResult | None:
 async def get_playlist_tracks(playlist_id: str) -> list[SpotifySearchResult]:
     """Fetch all tracks from a Spotify playlist by ID.
 
-    Uses the main playlist endpoint (works with client-credentials auth
-    for public playlists) and follows pagination via the tracks.next URL.
+    Tries two approaches:
+    1. Main playlist endpoint (`/playlists/{id}`) — works if tracks are embedded.
+    2. Tracks sub-endpoint (`/playlists/{id}/tracks`) — fallback if tracks are
+       not embedded in the main response.
+
+    Handles pagination for playlists with >100 tracks.
     """
     token = await _get_token()
     tracks: list[SpotifySearchResult] = []
     headers = {"Authorization": f"Bearer {token}"}
 
     async with httpx.AsyncClient() as client:
-        # First request: get playlist with embedded tracks
+        # Try main playlist endpoint first (sometimes includes tracks)
         resp = await client.get(
             f"https://api.spotify.com/v1/playlists/{playlist_id}",
             headers=headers,
         )
         resp.raise_for_status()
         playlist_data = resp.json()
+        tracks_data = playlist_data.get("tracks")
 
-        logger.info(
-            "Playlist %s response keys: %s",
-            playlist_id, list(playlist_data.keys()),
-        )
+        # If tracks not embedded, fetch them directly
+        if not isinstance(tracks_data, dict) or not tracks_data.get("items"):
+            logger.info("Playlist %s: tracks not in main response, fetching /tracks", playlist_id)
+            try:
+                resp = await client.get(
+                    f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks",
+                    headers=headers,
+                    params={"limit": 100},
+                )
+                resp.raise_for_status()
+                tracks_data = resp.json()
+            except httpx.HTTPStatusError as e:
+                logger.warning(
+                    "Playlist %s /tracks failed (%s), trying with fields param",
+                    playlist_id, e.response.status_code,
+                )
+                # Last resort: request main endpoint with explicit fields
+                resp = await client.get(
+                    f"https://api.spotify.com/v1/playlists/{playlist_id}",
+                    headers=headers,
+                    params={"fields": "tracks.items(track(id,name,artists,album)),tracks.next"},
+                )
+                resp.raise_for_status()
+                tracks_data = resp.json().get("tracks", {})
 
-        tracks_data = playlist_data.get("tracks", {})
-
-        logger.info(
-            "Playlist %s: tracks keys=%s, got %d items (total: %s)",
-            playlist_id,
-            list(tracks_data.keys()) if isinstance(tracks_data, dict) else type(tracks_data),
-            len(tracks_data.get("items", [])) if isinstance(tracks_data, dict) else 0,
-            tracks_data.get("total", "?") if isinstance(tracks_data, dict) else "N/A",
-        )
-
-        # Process initial batch of tracks
+        # Process initial batch
         _extract_tracks(tracks_data.get("items", []), tracks)
 
-        # Follow pagination if more tracks exist
+        # Follow pagination
         next_url = tracks_data.get("next")
         while next_url:
             resp = await client.get(next_url, headers=headers)
