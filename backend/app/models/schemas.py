@@ -101,7 +101,6 @@ class ClusterAnalyzeRequest(BaseModel):
 
     songs: list[ClusterSong] = Field(
         default=[],
-        max_length=20,
         description="List of individual songs to analyze.",
     )
     spotify_playlist_url: str | None = Field(

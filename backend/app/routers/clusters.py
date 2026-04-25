@@ -107,13 +107,6 @@ async def analyze_cluster(req: ClusterAnalyzeRequest):
             playlist_id, len(playlist_tracks),
         )
 
-    MAX_SONGS = 20
-    if len(all_cluster_songs) > MAX_SONGS:
-        logger.warning(
-            "Truncating %d songs to %d", len(all_cluster_songs), MAX_SONGS,
-        )
-        all_cluster_songs = all_cluster_songs[:MAX_SONGS]
-
     if not all_cluster_songs:
         raise HTTPException(400, "Provide at least one song or a playlist URL")
 
@@ -198,9 +191,9 @@ async def analyze_cluster(req: ClusterAnalyzeRequest):
         # Vibe description from aggregate region scores
         vibe = describe_vibe(combined.region_scores)
 
-        # Pairwise similarities (only when >1 song)
+        # Pairwise similarities (only when 2–20 songs; skip for large batches)
         pairwise: list[PairwiseSimilarity] = []
-        if len(songs) > 1:
+        if 1 < len(songs) <= 20:
             for i in range(len(songs)):
                 for j in range(i + 1, len(songs)):
                     components = compare_songs(fingerprints[i], fingerprints[j])
