@@ -1,4 +1,4 @@
-"""Listener cluster mode: analyze a group of songs for resonance."""
+"""Listener / playlist mode: analyze one or more songs and return aggregate brain data."""
 
 from __future__ import annotations
 
@@ -15,16 +15,19 @@ from app.models.schemas import (
     SongInfo,
 )
 from app.services.audio import cleanup_audio, download_youtube_audio
-from app.services.recommendations import (
-    compare_songs,
-    compute_cluster_coherence,
-    final_similarity,
-    find_odd_one_out,
-)
+from app.services.recommendations import compare_songs, final_similarity
 from app.config import settings
 from app.services.song_cache import get_cached, make_lookup_key
 from app.services.spotify import get_track_info, search_youtube_for_track
-from app.services.tribe import SongFingerprints, analyze_audio
+from app.services.tribe import (
+    SongFingerprints,
+    aggregate_fingerprints,
+    analyze_audio,
+    describe_vibe,
+    encode_fingerprint_b64,
+    encode_temporal_b64,
+    resample_sequence,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/clusters", tags=["clusters"])
@@ -32,23 +35,56 @@ router = APIRouter(prefix="/clusters", tags=["clusters"])
 
 @router.post("/analyze", response_model=ClusterAnalyzeResponse)
 async def analyze_cluster(req: ClusterAnalyzeRequest):
-    """Analyze a set of songs for predicted cortical-response coherence.
+    """Analyze one or more songs and return aggregate brain activation data.
 
-    For each song:
-    1. Resolve Spotify metadata (if spotify_id provided).
-    2. Find a YouTube source for the audio.
-    3. Download audio via yt-dlp.
-    4. Run TRIBE v2 (or mock) fingerprinting.
+    ## Pipeline
 
-    Then compute cluster coherence using weighted similarity
-    (0.5 global + 0.3 temporal arc + 0.2 peak).
+    For each song the backend:
+    1. Checks the **Supabase cache** — if this song was analyzed before, its
+       fingerprints are loaded instantly (no GPU needed).
+    2. Resolves **Spotify metadata** (if `spotify_id` is provided).
+    3. Finds a **YouTube source** for the audio (auto-search if only Spotify ID given).
+    4. Downloads audio via **yt-dlp**.
+    5. Runs **TRIBE v2** inference on a remote GPU worker (~30–60 s per song).
+    6. Caches the result in Supabase for future instant retrieval.
+
+    After all songs are processed, fingerprints are **aggregated** (averaged)
+    into a single combined brain response.
+
+    ## Response Overview
+
+    | Field | Type | Size | Purpose |
+    |---|---|---|---|
+    | `combined_fingerprint_b64` | base64 string | ~109 KB | 20,484 float32 vertex activations for brain mesh coloring |
+    | `temporal_fingerprints_b64` | base64 string | ~3.2 MB | 30 × 20,484 float32 for timeline scrubbing |
+    | `combined_region_scores` | JSON object | ~100 B | Per-region activation (auditory, temporal, etc.) |
+    | `combined_timeline` | JSON array | ~2 KB | 30 segments × 6 region scores for timeline chart |
+    | `vibe_description` | string | ~200 B | Human-readable brain activation interpretation |
+    | `pairwise_similarities` | JSON array | varies | Song-to-song similarity (only when >1 song) |
+
+    Total response: **~3.3 MB JSON**, **~500 KB–1 MB** with HTTP gzip compression.
+
+    ## Frontend Decoding (JavaScript)
+
+    ```js
+    // Decode combined fingerprint (20,484 floats)
+    const fpBytes = Uint8Array.from(
+      atob(data.combined_fingerprint_b64), c => c.charCodeAt(0)
+    );
+    const vertices = new Float32Array(fpBytes.buffer);
+    // vertices[i] → activation for cortical vertex i on fsaverage5 mesh
+
+    // Decode temporal scrubbing data (30 segments × 20,484 floats)
+    const tempBytes = Uint8Array.from(
+      atob(data.temporal_fingerprints_b64), c => c.charCodeAt(0)
+    );
+    const allSegments = new Float32Array(tempBytes.buffer);
+    // Segment i: allSegments.slice(i * 20484, (i + 1) * 20484)
+    ```
     """
-    if len(req.songs) < 2:
-        raise HTTPException(400, "Need at least 2 songs for a cluster")
-
     songs: list[SongInfo] = []
     fingerprints: list[SongFingerprints] = []
-    audio_paths = []
+    audio_paths: list = []
 
     for cluster_song in req.songs:
         try:
@@ -108,56 +144,60 @@ async def analyze_cluster(req: ClusterAnalyzeRequest):
             continue
 
     try:
-        if len(songs) < 2:
+        if not songs:
             raise HTTPException(
                 400,
-                "Could not process enough songs. Need at least 2 successful.",
+                "Could not process any songs successfully.",
             )
 
-        coherence_score, coherence_label = compute_cluster_coherence(fingerprints)
+        # Aggregate all songs into one combined brain fingerprint
+        combined = aggregate_fingerprints(fingerprints)
 
-        # Pairwise similarities with full component breakdown
+        # Encode vertex data as base64 for frontend (raw float32 bytes)
+        combined_fp_b64 = encode_fingerprint_b64(combined.global_fingerprint)
+
+        # Temporal fingerprints (30 resampled segments × 20484 vertices)
+        temporal_resampled = resample_sequence(combined.temporal_fingerprints)
+        temporal_b64 = encode_temporal_b64(temporal_resampled)
+
+        # Vibe description from aggregate region scores
+        vibe = describe_vibe(combined.region_scores)
+
+        # Pairwise similarities (only when >1 song)
         pairwise: list[PairwiseSimilarity] = []
-        for i in range(len(songs)):
-            for j in range(i + 1, len(songs)):
-                components = compare_songs(fingerprints[i], fingerprints[j])
-                score = final_similarity(components)
-                pairwise.append(
-                    PairwiseSimilarity(
-                        song_a=songs[i].song_id,
-                        song_b=songs[j].song_id,
-                        similarity=score,
-                        components=components,
+        if len(songs) > 1:
+            for i in range(len(songs)):
+                for j in range(i + 1, len(songs)):
+                    components = compare_songs(fingerprints[i], fingerprints[j])
+                    score = final_similarity(components)
+                    pairwise.append(
+                        PairwiseSimilarity(
+                            song_a=songs[i].song_id,
+                            song_b=songs[j].song_id,
+                            similarity=score,
+                            components=components,
+                        )
                     )
-                )
 
-        odd_one_out = find_odd_one_out(songs, fingerprints)
-
-        summary = (
-            f"These {len(songs)} songs form a {coherence_label} resonance cluster "
-            f"(coherence: {coherence_score:.2f}). "
-        )
-        if coherence_label == "strong":
-            summary += "They are predicted to produce similar cortical-response patterns."
-        elif coherence_label == "moderate":
-            summary += "They share some predicted cortical-response patterns but have notable differences."
-        else:
-            summary += "They produce quite different predicted cortical-response patterns."
-
-        if odd_one_out:
-            summary += f" '{odd_one_out.title}' is the most dissimilar song in the set."
+        n = len(songs)
+        summary = f"Analyzed {n} song{'s' if n > 1 else ''}"
+        if n > 1 and pairwise:
+            avg_sim = sum(p.similarity for p in pairwise) / len(pairwise)
+            summary += f" with average pairwise similarity of {avg_sim:.2f}"
+        summary += f". {vibe}"
 
         analysis_id = f"analysis_{uuid.uuid4().hex[:12]}"
 
         return ClusterAnalyzeResponse(
             analysis_id=analysis_id,
-            coherence_score=coherence_score,
-            coherence_label=coherence_label,
             songs=songs,
+            combined_fingerprint_b64=combined_fp_b64,
+            temporal_fingerprints_b64=temporal_b64,
+            combined_region_scores=combined.region_scores,
+            combined_timeline=combined.timeline_region_scores,
+            peak_segment=combined.peak_index,
+            vibe_description=vibe,
             pairwise_similarities=pairwise,
-            odd_one_out=odd_one_out,
-            recommendations=[],
-            frames=[],
             summary=summary,
         )
 
