@@ -155,6 +155,8 @@ async def analyze_audio(
     In mock mode, generates structured fake data.
     In real mode, calls the TRIBE inference worker.
     """
+    import asyncio
+
     from app.services.song_cache import store_cached
 
     if settings.use_mock_tribe:
@@ -185,9 +187,10 @@ async def analyze_audio(
 
     fingerprints = derive_fingerprints(preds)
 
-    # Store in cache for next time
+    # Store in cache for next time (offload to thread to avoid blocking)
     if cache_key:
-        store_cached(
+        await asyncio.to_thread(
+            store_cached,
             cache_key,
             fingerprints,
             title=title,

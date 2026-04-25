@@ -77,7 +77,7 @@ async def analyze_cluster(req: ClusterAnalyzeRequest):
             # Check cache before downloading audio
             song_fp = None
             if cache_key and not settings.use_mock_tribe:
-                song_fp = get_cached(cache_key)
+                song_fp = await asyncio.to_thread(get_cached, cache_key)
 
             if song_fp is None:
                 audio_path = await asyncio.to_thread(
