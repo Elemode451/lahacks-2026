@@ -81,7 +81,7 @@ class ClusterSong(BaseModel):
 
 
 class ClusterAnalyzeRequest(BaseModel):
-    songs: list[ClusterSong] = Field(..., min_length=2, max_length=10)
+    songs: list[ClusterSong] = Field(..., min_length=1, max_length=20)
     title: str = "My Cluster"
 
 
@@ -94,13 +94,16 @@ class PairwiseSimilarity(BaseModel):
 
 class ClusterAnalyzeResponse(BaseModel):
     analysis_id: str
-    coherence_score: float
-    coherence_label: str  # "strong" | "moderate" | "eclectic"
     songs: list[SongInfo] = []
+    # ── Aggregate brain data (combined across all songs) ──
+    combined_fingerprint_b64: str = ""       # base64-encoded float32 array (20484,)
+    temporal_fingerprints_b64: str = ""      # base64-encoded float32 array (30, 20484)
+    combined_region_scores: RegionScores = Field(default_factory=RegionScores)
+    combined_timeline: list[dict[str, float]] = []  # 30 resampled segments
+    peak_segment: int = 0
+    vibe_description: str = ""
+    # ── Pairwise data (only when >1 song) ──
     pairwise_similarities: list[PairwiseSimilarity] = []
-    odd_one_out: SongInfo | None = None
-    recommendations: list[SongMatch] = []
-    frames: list[str] = []
     summary: str = ""
 
 
