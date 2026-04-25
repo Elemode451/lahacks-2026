@@ -109,13 +109,20 @@ async def get_playlist_tracks(playlist_id: str) -> list[SpotifySearchResult]:
         )
         resp.raise_for_status()
         playlist_data = resp.json()
+
+        logger.info(
+            "Playlist %s response keys: %s",
+            playlist_id, list(playlist_data.keys()),
+        )
+
         tracks_data = playlist_data.get("tracks", {})
 
         logger.info(
-            "Playlist %s: got %d items in initial response (total: %s)",
+            "Playlist %s: tracks keys=%s, got %d items (total: %s)",
             playlist_id,
-            len(tracks_data.get("items", [])),
-            tracks_data.get("total", "?"),
+            list(tracks_data.keys()) if isinstance(tracks_data, dict) else type(tracks_data),
+            len(tracks_data.get("items", [])) if isinstance(tracks_data, dict) else 0,
+            tracks_data.get("total", "?") if isinstance(tracks_data, dict) else "N/A",
         )
 
         # Process initial batch of tracks
