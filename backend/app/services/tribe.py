@@ -222,6 +222,27 @@ def resample_sequence(
     return result
 
 
+def _resample_raw(
+    sequence: list[np.ndarray], n: int = TEMPORAL_RESAMPLE_N
+) -> list[np.ndarray]:
+    """Resample vectors via linear interpolation WITHOUT normalizing."""
+    if len(sequence) == 0:
+        return [np.zeros(N_VERTICES, dtype=np.float32)] * n
+    if len(sequence) == n:
+        return list(sequence)
+
+    src_len = len(sequence)
+    result = []
+    for i in range(n):
+        pos = i * (src_len - 1) / (n - 1) if n > 1 else 0
+        lo = int(pos)
+        hi = min(lo + 1, src_len - 1)
+        frac = pos - lo
+        interpolated = (1 - frac) * sequence[lo] + frac * sequence[hi]
+        result.append(interpolated)
+    return result
+
+
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
     """Compute cosine similarity between two vectors."""
     dot = np.dot(a, b)
@@ -248,8 +269,12 @@ def aggregate_fingerprints(
         fp = fps[0]
         # Resample temporal fingerprints so peak_index is in 0–29 space
         resampled = resample_sequence(fp.temporal_fingerprints)
-        peak_norms = [float(np.linalg.norm(resampled[t])) for t in range(TEMPORAL_RESAMPLE_N)]
+        # Compute peak from raw (un-normalized) interpolated vectors
+        raw_resampled = _resample_raw(fp.temporal_fingerprints)
+        peak_norms = [float(np.linalg.norm(raw_resampled[t])) for t in range(TEMPORAL_RESAMPLE_N)]
         peak_idx = int(np.argmax(peak_norms))
+        # Resample timeline to 30 segments to match temporal fingerprints
+        resampled_timeline = _average_timelines([fp.timeline_region_scores])
         return SongFingerprints(
             fingerprint_id=fp.fingerprint_id,
             global_fingerprint=fp.global_fingerprint,
@@ -257,7 +282,7 @@ def aggregate_fingerprints(
             peak_fingerprint=resampled[peak_idx],
             peak_index=peak_idx,
             region_scores=fp.region_scores,
-            timeline_region_scores=fp.timeline_region_scores,
+            timeline_region_scores=resampled_timeline,
         )
 
     # Average global fingerprints
@@ -273,7 +298,12 @@ def aggregate_fingerprints(
         avg_temporal.append(_normalize(avg_vec))
 
     # Peak: find which resampled segment has highest activation norm
-    peak_norms = [float(np.linalg.norm(avg_temporal[t])) for t in range(TEMPORAL_RESAMPLE_N)]
+    # Use raw (un-normalized) averaged vectors so norms reflect true activation
+    raw_resampled_all = [_resample_raw(fp.temporal_fingerprints) for fp in fps]
+    avg_raw = []
+    for t in range(TEMPORAL_RESAMPLE_N):
+        avg_raw.append(np.mean([r[t] for r in raw_resampled_all], axis=0))
+    peak_norms = [float(np.linalg.norm(avg_raw[t])) for t in range(TEMPORAL_RESAMPLE_N)]
     peak_idx = int(np.argmax(peak_norms))
     peak_fp = avg_temporal[peak_idx]
 
