@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import collections
 import logging
 import uuid
 
@@ -15,8 +16,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/creator", tags=["creator"])
 
 # In-memory store for creator analyses (not persisted to DB — user's uploaded
-# songs should NOT go in the catalog database per the spec)
-_creator_analyses: dict[str, dict] = {}
+# songs should NOT go in the catalog database per the spec).
+# Capped at 200 entries to prevent unbounded memory growth.
+_MAX_CREATOR_CACHE = 200
+_creator_analyses: collections.OrderedDict[str, dict] = collections.OrderedDict()
 
 
 @router.post("/analyze", response_model=CreatorAnalyzeResponse)
@@ -89,6 +92,8 @@ async def analyze_creator_track(
 
         # Store in memory (not DB) so the user can retrieve it during the session
         _creator_analyses[analysis_id] = result.model_dump()
+        while len(_creator_analyses) > _MAX_CREATOR_CACHE:
+            _creator_analyses.popitem(last=False)
 
         return result
 

@@ -8,19 +8,23 @@ import uuid
 from fastapi import APIRouter, HTTPException, Header
 
 from app.models.schemas import AnalysisDetail, AnalysisSummary, ShareResponse
-from app.services.supabase_client import get_supabase
+from app.services.supabase_client import get_supabase_admin
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["analyses"])
 
 
 def _get_user_id(authorization: str | None) -> str:
-    """Extract user ID from the Supabase JWT in the Authorization header."""
+    """Extract user ID from the Supabase JWT in the Authorization header.
+
+    Uses the admin client's auth.get_user(token) which validates the JWT
+    without mutating any session state on the client.
+    """
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "Missing or invalid Authorization header")
     token = authorization.removeprefix("Bearer ")
     try:
-        sb = get_supabase()
+        sb = get_supabase_admin()
         user = sb.auth.get_user(token)
         if user is None or user.user is None:
             raise HTTPException(401, "Invalid token")
@@ -31,11 +35,26 @@ def _get_user_id(authorization: str | None) -> str:
         raise HTTPException(401, "Invalid token")
 
 
+def _try_get_user_id(authorization: str | None) -> str | None:
+    """Try to extract user ID from token. Returns None if not authenticated."""
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization.removeprefix("Bearer ")
+    try:
+        sb = get_supabase_admin()
+        user = sb.auth.get_user(token)
+        if user is None or user.user is None:
+            return None
+        return user.user.id
+    except Exception:
+        return None
+
+
 @router.get("/me/analyses", response_model=list[AnalysisSummary])
 async def list_my_analyses(authorization: str | None = Header(None)):
     """List the current user's saved analyses."""
     user_id = _get_user_id(authorization)
-    sb = get_supabase()
+    sb = get_supabase_admin()
 
     result = (
         sb.table("analyses")
@@ -57,21 +76,6 @@ async def list_my_analyses(authorization: str | None = Header(None)):
     ]
 
 
-def _try_get_user_id(authorization: str | None) -> str | None:
-    """Try to extract user ID from token. Returns None if not authenticated."""
-    if not authorization or not authorization.startswith("Bearer "):
-        return None
-    token = authorization.removeprefix("Bearer ")
-    try:
-        sb = get_supabase()
-        user = sb.auth.get_user(token)
-        if user is None or user.user is None:
-            return None
-        return user.user.id
-    except Exception:
-        return None
-
-
 @router.get("/analyses/{analysis_id}", response_model=AnalysisDetail)
 async def get_analysis(
     analysis_id: str,
@@ -82,7 +86,7 @@ async def get_analysis(
     Public if the analysis has a share_slug. Otherwise requires auth
     and the requesting user must be the owner.
     """
-    sb = get_supabase()
+    sb = get_supabase_admin()
 
     result = (
         sb.table("analyses")
@@ -120,7 +124,7 @@ async def share_analysis(
 ):
     """Generate a public share link for an analysis."""
     user_id = _get_user_id(authorization)
-    sb = get_supabase()
+    sb = get_supabase_admin()
 
     # Verify ownership
     result = (
@@ -151,7 +155,7 @@ async def share_analysis(
 @router.get("/share/{slug}", response_model=AnalysisDetail)
 async def get_shared_analysis(slug: str):
     """View a publicly shared analysis by its slug."""
-    sb = get_supabase()
+    sb = get_supabase_admin()
 
     result = (
         sb.table("analyses")
