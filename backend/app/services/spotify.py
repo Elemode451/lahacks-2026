@@ -111,6 +111,13 @@ async def get_playlist_tracks(playlist_id: str) -> list[SpotifySearchResult]:
         playlist_data = resp.json()
         tracks_data = playlist_data.get("tracks", {})
 
+        logger.info(
+            "Playlist %s: got %d items in initial response (total: %s)",
+            playlist_id,
+            len(tracks_data.get("items", [])),
+            tracks_data.get("total", "?"),
+        )
+
         # Process initial batch of tracks
         _extract_tracks(tracks_data.get("items", []), tracks)
 
@@ -131,9 +138,10 @@ def _extract_tracks(
     items: list[dict], out: list[SpotifySearchResult]
 ) -> None:
     """Parse track items from Spotify playlist response into SpotifySearchResult list."""
-    for item in items:
+    for i, item in enumerate(items):
         track = item.get("track")
         if not track or not track.get("id"):
+            logger.debug("Skipping playlist item %d: track=%s", i, type(track))
             continue
         images = track.get("album", {}).get("images", [])
         out.append(
