@@ -106,17 +106,10 @@ async def get_playlist_tracks(playlist_id: str) -> list[SpotifySearchResult]:
     headers = {"Authorization": f"Bearer {token}"}
 
     async with httpx.AsyncClient() as client:
-        # Use the current /items endpoint (the old /tracks endpoint is deprecated)
-        url: str | None = f"https://api.spotify.com/v1/playlists/{playlist_id}/items"
-        params: dict[str, str | int] | None = {"limit": 50, "market": "US"}
-
-        while url:
-            resp = await client.get(url, headers=headers, params=params)
-            resp.raise_for_status()
-            data = resp.json()
-            _extract_tracks(data.get("items", []), tracks)
-            url = data.get("next")
-            params = None  # next URL includes params
+        # Client-credentials can't access playlist tracks endpoints directly.
+        # Scrape the public playlist page for track IDs, then batch-fetch
+        # metadata via GET /tracks?ids=... (which works with client creds).
+        tracks = await _scrape_playlist_tracks(playlist_id, client, headers)
 
     logger.info("Fetched %d tracks from Spotify playlist %s", len(tracks), playlist_id)
     return tracks
