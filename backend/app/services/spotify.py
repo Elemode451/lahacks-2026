@@ -92,24 +92,32 @@ async def get_track_info(spotify_id: str) -> SpotifySearchResult | None:
 
 
 async def get_playlist_tracks(playlist_id: str) -> list[SpotifySearchResult]:
-    """Fetch all tracks from a Spotify playlist by ID.
+    """Fetch all tracks from a public Spotify playlist by ID.
 
-    Tries two approaches:
-    1. Main playlist endpoint (`/playlists/{id}`) — works if tracks are embedded.
-    2. Tracks sub-endpoint (`/playlists/{id}/tracks`) — fallback if tracks are
-       not embedded in the main response.
+    WORKAROUND (client-credentials auth limitation):
+    ─────────────────────────────────────────────────
+    Spotify's playlist endpoints (/playlists/{id}/items, /playlists/{id}/tracks)
+    require **user-level OAuth** (Authorization Code Flow) — they return 401/403
+    with client-credentials tokens.
 
-    Handles pagination for playlists with >100 tracks.
+    As a temporary workaround, this function:
+      1. Scrapes the public playlist page on open.spotify.com for track IDs
+      2. Fetches each track's metadata via GET /tracks/{id} (which DOES work
+         with client credentials)
+
+    This only works for **public playlists**. Private/collaborative playlists
+    will return 0 tracks.
+
+    TODO(spotify-oauth): Once we add "Connect Spotify" (user OAuth login),
+    replace this with a direct call to GET /playlists/{id}/items using the
+    user's access token. This will:
+      - Support private playlists
+      - Be faster (batch endpoint instead of per-track fetches)
+      - Be more reliable (no HTML scraping)
+    See: https://developer.spotify.com/documentation/web-api/reference/get-playlists-items
     """
-    token = await _get_token()
-    tracks: list[SpotifySearchResult] = []
-    headers = {"Authorization": f"Bearer {token}"}
-
     async with httpx.AsyncClient() as client:
-        # Client-credentials can't access playlist tracks endpoints directly.
-        # Scrape the public playlist page for track IDs, then batch-fetch
-        # metadata via GET /tracks?ids=... (which works with client creds).
-        tracks = await _scrape_playlist_tracks(playlist_id, client, headers)
+        tracks = await _scrape_playlist_tracks(playlist_id, client)
 
     logger.info("Fetched %d tracks from Spotify playlist %s", len(tracks), playlist_id)
     return tracks
@@ -118,12 +126,17 @@ async def get_playlist_tracks(playlist_id: str) -> list[SpotifySearchResult]:
 async def _scrape_playlist_tracks(
     playlist_id: str,
     client: httpx.AsyncClient,
-    headers: dict[str, str],
 ) -> list[SpotifySearchResult]:
-    """Scrape the public Spotify playlist page for track IDs,
-    then fetch each track's metadata via get_track_info (single-track endpoint)."""
+    """Extract track IDs from a public Spotify playlist page, then fetch metadata.
+
+    TEMPORARY: This exists because client-credentials auth cannot access
+    playlist track listing endpoints. Replace with direct API call once
+    Spotify OAuth (user login) is implemented.
+    See get_playlist_tracks() docstring for details.
+    """
     import re
 
+    # Step 1: Scrape the public playlist page for track IDs (no auth needed)
     resp = await client.get(
         f"https://open.spotify.com/playlist/{playlist_id}",
         headers={"User-Agent": "Mozilla/5.0"},
@@ -131,14 +144,14 @@ async def _scrape_playlist_tracks(
     resp.raise_for_status()
     html = resp.text
 
-    # Extract track IDs from the page (links like /track/XXXXX)
     track_ids = list(dict.fromkeys(re.findall(r'/track/([a-zA-Z0-9]{22})', html)))
     logger.info("Scraped %d track IDs from playlist page %s", len(track_ids), playlist_id)
 
     if not track_ids:
         return []
 
-    # Fetch each track individually (the single-track endpoint works with client creds)
+    # Step 2: Fetch each track's metadata via the single-track API endpoint
+    # (GET /tracks/{id} works with client credentials unlike the batch/playlist endpoints)
     results: list[SpotifySearchResult] = []
     for track_id in track_ids:
         info = await get_track_info(track_id)
@@ -146,27 +159,6 @@ async def _scrape_playlist_tracks(
             results.append(info)
     return results
 
-
-def _extract_tracks(
-    items: list[dict], out: list[SpotifySearchResult]
-) -> None:
-    """Parse track items from Spotify playlist response into SpotifySearchResult list."""
-    for i, item in enumerate(items):
-        track = item.get("track")
-        if not track or not track.get("id"):
-            logger.debug("Skipping playlist item %d: track=%s", i, type(track))
-            continue
-        images = track.get("album", {}).get("images", [])
-        out.append(
-            SpotifySearchResult(
-                spotify_id=track["id"],
-                title=track["name"],
-                artist=", ".join(a["name"] for a in track.get("artists", [])),
-                album=track.get("album", {}).get("name"),
-                album_art_url=images[0]["url"] if images else None,
-                preview_url=track.get("preview_url"),
-            )
-        )
 
 
 def parse_playlist_id(url: str) -> str | None:
