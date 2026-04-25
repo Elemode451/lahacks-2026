@@ -21,6 +21,7 @@ from app.services.recommendations import (
     final_similarity,
     find_odd_one_out,
 )
+from app.services.song_cache import get_cached, make_lookup_key
 from app.services.spotify import get_track_info, search_youtube_for_track
 from app.services.tribe import SongFingerprints, analyze_audio
 
@@ -67,10 +68,27 @@ async def analyze_cluster(req: ClusterAnalyzeRequest):
                 logger.warning("No audio source for %s - %s, skipping", artist, title)
                 continue
 
-            audio_path = await asyncio.to_thread(download_youtube_audio, youtube_url)
-            audio_paths.append(audio_path)
+            cache_key = make_lookup_key(
+                youtube_url=youtube_url,
+                spotify_id=cluster_song.spotify_id,
+            )
 
-            song_fp = await analyze_audio(audio_path)
+            # Check cache before downloading audio
+            song_fp = None
+            if cache_key:
+                song_fp = get_cached(cache_key)
+
+            if song_fp is None:
+                audio_path = await asyncio.to_thread(
+                    download_youtube_audio, youtube_url
+                )
+                audio_paths.append(audio_path)
+                song_fp = await analyze_audio(
+                    audio_path,
+                    cache_key=cache_key,
+                    title=title,
+                    artist=artist,
+                )
 
             song_id = f"song_{uuid.uuid4().hex[:12]}"
             song_info = SongInfo(

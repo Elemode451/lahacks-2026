@@ -1,0 +1,22 @@
+-- Migration: Add song_cache table for TRIBE inference caching.
+-- Run this in the Supabase SQL Editor.
+
+CREATE TABLE IF NOT EXISTS song_cache (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    lookup_key TEXT UNIQUE NOT NULL,
+    title TEXT NOT NULL DEFAULT 'Unknown',
+    artist TEXT NOT NULL DEFAULT 'Unknown',
+    preds_b64gz TEXT NOT NULL,
+    preds_shape INT[] NOT NULL,
+    region_scores JSONB NOT NULL,
+    inference_time_s FLOAT,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_song_cache_lookup ON song_cache(lookup_key);
+
+ALTER TABLE song_cache ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY song_cache_select ON song_cache FOR SELECT USING (true);
+CREATE POLICY song_cache_insert ON song_cache FOR INSERT WITH CHECK (true);
+CREATE POLICY song_cache_update ON song_cache FOR UPDATE USING (true);

@@ -139,12 +139,30 @@ def derive_fingerprints(preds: np.ndarray) -> SongFingerprints:
     )
 
 
-async def analyze_audio(audio_path: Path) -> SongFingerprints:
+async def analyze_audio(
+    audio_path: Path,
+    *,
+    cache_key: str | None = None,
+    title: str = "Unknown",
+    artist: str = "Unknown",
+) -> SongFingerprints:
     """Run TRIBE v2 on an audio file and return all fingerprint representations.
+
+    If *cache_key* is provided and a cached result exists in Supabase, the
+    cached predictions are used instead of calling the worker.  After a
+    successful inference the result is stored in the cache.
 
     In mock mode, generates structured fake data.
     In real mode, calls the TRIBE inference worker.
     """
+    from app.services.song_cache import get_cached, store_cached
+
+    # Check cache first (skip in mock mode)
+    if cache_key and not settings.use_mock_tribe:
+        cached = get_cached(cache_key)
+        if cached is not None:
+            return cached
+
     if settings.use_mock_tribe:
         logger.info("Using MOCK TRIBE analysis for %s", audio_path)
         preds = _mock_preds(seed=str(audio_path))
@@ -170,7 +188,23 @@ async def analyze_audio(audio_path: Path) -> SongFingerprints:
         preds = np.array(data["preds"], dtype=np.float32)
 
     logger.info("Received preds %s from worker", preds.shape)
-    return derive_fingerprints(preds)
+
+    fingerprints = derive_fingerprints(preds)
+
+    # Store in cache for next time
+    if cache_key:
+        region_dict = fingerprints.region_scores.model_dump()
+        inference_time = data.get("inference_time_s")
+        store_cached(
+            cache_key,
+            preds,
+            title=title,
+            artist=artist,
+            region_scores=region_dict,
+            inference_time_s=inference_time,
+        )
+
+    return fingerprints
 
 
 def resample_sequence(
