@@ -245,7 +245,20 @@ def aggregate_fingerprints(
     representation of the playlist's collective brain response.
     """
     if len(fps) == 1:
-        return fps[0]
+        fp = fps[0]
+        # Resample temporal fingerprints so peak_index is in 0–29 space
+        resampled = resample_sequence(fp.temporal_fingerprints)
+        peak_norms = [float(np.linalg.norm(resampled[t])) for t in range(TEMPORAL_RESAMPLE_N)]
+        peak_idx = int(np.argmax(peak_norms))
+        return SongFingerprints(
+            fingerprint_id=fp.fingerprint_id,
+            global_fingerprint=fp.global_fingerprint,
+            temporal_fingerprints=resampled,
+            peak_fingerprint=resampled[peak_idx],
+            peak_index=peak_idx,
+            region_scores=fp.region_scores,
+            timeline_region_scores=fp.timeline_region_scores,
+        )
 
     # Average global fingerprints
     global_fp = _normalize(
@@ -253,26 +266,24 @@ def aggregate_fingerprints(
     )
 
     # Average resampled temporal fingerprints (aligned to same length)
-    resampled = [resample_sequence(fp.temporal_fingerprints) for fp in fps]
+    resampled_all = [resample_sequence(fp.temporal_fingerprints) for fp in fps]
     avg_temporal = []
     for t in range(TEMPORAL_RESAMPLE_N):
-        avg_vec = np.mean([r[t] for r in resampled], axis=0)
+        avg_vec = np.mean([r[t] for r in resampled_all], axis=0)
         avg_temporal.append(_normalize(avg_vec))
 
-    # Peak: find which song/segment has highest overall norm
-    best_peak_norm = 0.0
-    peak_fp = fps[0].peak_fingerprint
-    peak_idx = 0
-    for fp in fps:
-        n = float(np.linalg.norm(fp.peak_fingerprint))
-        if n > best_peak_norm:
-            best_peak_norm = n
-            peak_fp = fp.peak_fingerprint
-            peak_idx = fp.peak_index
+    # Peak: find which resampled segment has highest activation norm
+    peak_norms = [float(np.linalg.norm(avg_temporal[t])) for t in range(TEMPORAL_RESAMPLE_N)]
+    peak_idx = int(np.argmax(peak_norms))
+    peak_fp = avg_temporal[peak_idx]
 
-    # Region scores from the averaged global fingerprint (un-normalized)
-    global_raw = np.mean([fp.global_fingerprint for fp in fps], axis=0)
-    region_scores = region_scores_from_fingerprint(global_raw)
+    # Average per-song region scores directly (they were computed from raw data)
+    region_fields = ["auditory", "superior_temporal", "temporo_parietal",
+                     "inferior_frontal", "multisensory", "whole_cortex"]
+    avg_scores: dict[str, float] = {}
+    for field in region_fields:
+        avg_scores[field] = float(np.mean([getattr(fp.region_scores, field) for fp in fps]))
+    region_scores = RegionScores(**avg_scores)
 
     # Timeline: average region scores across songs, resample to 30 segments
     combined_timeline = _average_timelines([fp.timeline_region_scores for fp in fps])
