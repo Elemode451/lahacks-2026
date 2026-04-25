@@ -70,6 +70,8 @@ async def analyze_cluster(req: ClusterAnalyzeRequest):
             audio_path = await asyncio.to_thread(download_youtube_audio, youtube_url)
             audio_paths.append(audio_path)
 
+            song_fp = await analyze_audio(audio_path)
+
             song_id = f"song_{uuid.uuid4().hex[:12]}"
             song_info = SongInfo(
                 song_id=song_id,
@@ -78,8 +80,6 @@ async def analyze_cluster(req: ClusterAnalyzeRequest):
                 artist=artist,
             )
             songs.append(song_info)
-
-            song_fp = await analyze_audio(audio_path)
             fingerprints.append(song_fp)
 
         except Exception:

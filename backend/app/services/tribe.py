@@ -8,6 +8,9 @@ When False, calls the TRIBE inference worker API.
 
 from __future__ import annotations
 
+import base64
+import gzip
+import io
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -150,7 +153,7 @@ async def analyze_audio(audio_path: Path) -> SongFingerprints:
     # Real TRIBE worker call
     import httpx
 
-    async with httpx.AsyncClient(timeout=180.0) as client:
+    async with httpx.AsyncClient(timeout=600.0) as client:
         with open(audio_path, "rb") as f:
             resp = await client.post(
                 f"{settings.tribe_worker_url}/analyze",
@@ -159,7 +162,14 @@ async def analyze_audio(audio_path: Path) -> SongFingerprints:
             resp.raise_for_status()
             data = resp.json()
 
-    preds = np.array(data["preds"], dtype=np.float32)
+    if "preds_b64gz" in data:
+        compressed = base64.b64decode(data["preds_b64gz"])
+        raw = gzip.decompress(compressed)
+        preds = np.load(io.BytesIO(raw))
+    else:
+        preds = np.array(data["preds"], dtype=np.float32)
+
+    logger.info("Received preds %s from worker", preds.shape)
     return derive_fingerprints(preds)
 
 
