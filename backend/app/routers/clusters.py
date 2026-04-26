@@ -18,6 +18,7 @@ from app.models.schemas import (
     SongInfo,
 )
 from app.services.audio import cleanup_audio, download_youtube_audio
+from app.services.emotions import map_region_scores_to_emotions
 from app.services.recommendations import compare_songs, final_similarity
 from app.config import settings
 from app.services.song_cache import get_cached, make_lookup_key, record_user_interaction, save_analysis
@@ -206,6 +207,7 @@ async def analyze_cluster(
 
         # Vibe description from aggregate region scores
         vibe = describe_vibe(combined.region_scores)
+        emotional_profile = map_region_scores_to_emotions(combined.region_scores)
 
         # Pairwise similarities (only when 2–20 songs; skip for large batches)
         pairwise: list[PairwiseSimilarity] = []
@@ -270,6 +272,7 @@ async def analyze_cluster(
             pairwise_similarities=pairwise,
             summary=summary,
             saved=bool(saved),
+            emotional_profile=emotional_profile,
         )
 
     finally:
@@ -456,6 +459,7 @@ async def analyze_cluster_stream(
             temporal_resampled = resample_sequence(combined.temporal_fingerprints)
             temporal_b64 = encode_temporal_b64(temporal_resampled)
             vibe = describe_vibe(combined.region_scores)
+            emotional_profile = map_region_scores_to_emotions(combined.region_scores)
 
             pairwise: list[PairwiseSimilarity] = []
             if 1 < len(songs) <= 20:
@@ -517,6 +521,7 @@ async def analyze_cluster_stream(
                 pairwise_similarities=pairwise,
                 summary=summary,
                 saved=bool(saved),
+                emotional_profile=emotional_profile,
             )
 
             yield _sse_event("complete", response.model_dump())

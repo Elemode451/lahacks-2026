@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Uploa
 import numpy as np
 from app.models.schemas import AnalysisSummary, CreatorAnalyzeResponse, SongInfo
 from app.services.audio import cleanup_audio, save_uploaded_audio
+from app.services.emotions import map_region_scores_to_emotions
 from app.services.song_cache import record_user_interaction, save_analysis, store_cached
 from app.services.tribe import (
     _average_timelines,
@@ -83,6 +84,7 @@ async def analyze_creator_track(
         peak_seg = int(np.argmax(peak_norms))
 
         vibe = describe_vibe(song_fp.region_scores)
+        emotional_profile = map_region_scores_to_emotions(song_fp.region_scores)
 
         # Generate summary
         top_regions = sorted(
@@ -119,6 +121,7 @@ async def analyze_creator_track(
             combined_region_scores=song_fp.region_scores,
             combined_timeline=combined_timeline,
             vibe_description=vibe,
+            emotional_profile=emotional_profile,
         )
 
         # Persist to song_cache so the recommendation engine can find it

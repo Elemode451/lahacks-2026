@@ -77,6 +77,13 @@ class CreatorAnalyzeResponse(BaseModel):
     combined_region_scores: RegionScores = Field(default_factory=RegionScores)
     combined_timeline: list[dict[str, float]] = []
     vibe_description: str = ""
+    emotional_profile: dict | None = Field(
+        default=None,
+        description=(
+            "Predicted emotional response derived from brain region activations. "
+            "Contains emotion labels with intensities, dominant emotions, and a natural-language summary."
+        ),
+    )
 
 
 # ── Listener / Cluster Mode ────────────────────────────────────────────────
@@ -289,6 +296,13 @@ class ClusterAnalyzeResponse(BaseModel):
     saved: bool = Field(
         default=False,
         description="Whether this analysis was persisted to the database.",
+    )
+    emotional_profile: dict | None = Field(
+        default=None,
+        description=(
+            "Predicted emotional response derived from brain region activations. "
+            "Contains emotion labels with intensities, dominant emotions, and a natural-language summary."
+        ),
     )
 
 
