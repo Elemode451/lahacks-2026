@@ -328,7 +328,7 @@ export default function Home() {
                           </div>
                         </form>
 
-                        <div className="flex-1 overflow-y-auto mt-5 w-full custom-scrollbar flex flex-col items-center">
+                        <div className="flex-1 overflow-y-auto mt-4 w-full custom-scrollbar flex flex-col items-center">
                           <div className="w-full h-full pb-4">
                             <AnimatePresence>
                               {songs.length === 0 ? (
@@ -351,14 +351,15 @@ export default function Home() {
                                       initial={{ opacity: 0, y: 10 }}
                                       animate={{ opacity: 1, y: 0 }}
                                       exit={{ opacity: 0, scale: 0.95 }}
-                                      className="bg-[rgba(249,87,56,0.12)] rounded-2xl py-4 px-6 flex items-center justify-between group w-full"
+                                      className="bg-[rgba(249,87,56,0.08)] border border-[rgba(249,87,56,0.2)] rounded-full flex items-center justify-between group w-full"
+                                      style={{ padding: "20px 32px" }}
                                     >
-                                      <span className="text-[#f95738] font-medium truncate pr-4 text-[clamp(12px,1vw,14px)]">
+                                      <span className="text-[#f95738] font-medium truncate pr-4 text-sm">
                                         {song}
                                       </span>
                                       <button
                                         onClick={() => handleRemoveSong(idx)}
-                                        className="text-[#f95738] hover:text-[#d84b31] transition-colors p-2 -mr-1"
+                                        className="text-[#f95738] hover:text-[#d84b31] transition-colors shrink-0"
                                       >
                                         <X className="size-4" />
                                       </button>
