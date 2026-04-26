@@ -110,8 +110,9 @@ export default function LoginPage() {
         transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
         className="relative z-10 w-full max-w-md flex flex-col items-center"
       >
-        {/* Logo — frosted glass card */}
-        <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl px-10 py-8 flex flex-col items-center mb-10">
+        {/* Frosted glass card — wraps entire center section */}
+        <div className="w-full bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl px-8 py-10 flex flex-col items-center">
+          {/* Logo */}
           <div className="flex items-center gap-4 mb-3">
             <div className="flex">
               <div className="bg-[#f4d35e] h-8 w-[4px]" />
@@ -120,16 +121,15 @@ export default function LoginPage() {
             </div>
             <SeratoneLogo className="h-[50px] w-auto text-white" />
           </div>
-          <p className="text-white/40 text-sm tracking-tight">
+          <p className="text-white/40 text-sm tracking-tight mb-10">
             Music discovery through predicted brain response
           </p>
-        </div>
 
-        {/* Auth Buttons — spaced apart */}
-        <div className="w-full flex flex-col gap-4">
-          <button
-            onClick={signInWithGoogle}
-            className="w-full flex items-center justify-center gap-3 bg-white/10 backdrop-blur-sm border border-white/15 hover:bg-white/15 hover:border-white/25 rounded-full py-4 px-6 text-white font-medium text-base transition-all cursor-pointer hover:shadow-lg"
+          {/* Auth Buttons */}
+          <div className="w-full flex flex-col gap-4">
+            <button
+              onClick={signInWithGoogle}
+              className="w-full flex items-center justify-center gap-3 bg-white/10 border border-white/15 hover:bg-white/15 hover:border-white/25 rounded-full py-4 px-6 text-white font-medium text-base transition-all cursor-pointer hover:shadow-lg"
           >
             <svg width="20" height="20" viewBox="0 0 24 24">
               <path
@@ -187,15 +187,16 @@ export default function LoginPage() {
               </>
             )}
           </button>
-          {tempError && (
-            <p className="text-red-400 text-xs text-center -mt-2">{tempError}</p>
-          )}
-        </div>
+            {tempError && (
+              <p className="text-red-400 text-xs text-center -mt-2">{tempError}</p>
+            )}
+          </div>
 
-        <p className="mt-12 text-white/20 text-xs text-center">
-          By continuing, you agree to let Seratone analyze your music taste
-          through predicted cortical responses.
-        </p>
+          <p className="mt-8 text-white/20 text-xs text-center">
+            By continuing, you agree to let Seratone analyze your music taste
+            through predicted cortical responses.
+          </p>
+        </div>
       </motion.div>
     </div>
   );
