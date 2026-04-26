@@ -20,7 +20,7 @@ from app.models.schemas import (
 from app.services.audio import cleanup_audio, download_youtube_audio
 from app.services.recommendations import compare_songs, final_similarity
 from app.config import settings
-from app.services.song_cache import get_cached, make_lookup_key, record_user_interaction
+from app.services.song_cache import get_cached, make_lookup_key, record_user_interaction, save_analysis
 from app.services.spotify import get_playlist_tracks, get_track_info, parse_playlist_id, search_youtube_for_track
 from app.services.tribe import (
     SongFingerprints,
@@ -119,6 +119,7 @@ async def analyze_cluster(
 
     songs: list[SongInfo] = []
     fingerprints: list[SongFingerprints] = []
+    song_cache_keys: list[str] = []
     audio_paths: list = []
     user_id = try_get_user_id(authorization)
 
@@ -172,10 +173,11 @@ async def analyze_cluster(
             )
             songs.append(song_info)
             fingerprints.append(song_fp)
+            song_cache_keys.append(cache_key or "")
 
             # Track interaction for collaborative filtering
             if user_id and cache_key:
-                asyncio.get_event_loop().run_in_executor(
+                asyncio.get_running_loop().run_in_executor(
                     None, record_user_interaction, user_id, cache_key,
                 )
 
@@ -230,6 +232,32 @@ async def analyze_cluster(
 
         analysis_id = f"analysis_{uuid.uuid4().hex[:12]}"
 
+        # ── Persist analysis ────────────────────────────────────────
+        persist_payload = {
+            "songs": [s.model_dump() for s in songs],
+            "song_cache_keys": song_cache_keys,
+            "combined_region_scores": combined.region_scores.model_dump(),
+            "combined_timeline": combined.timeline_region_scores,
+            "peak_segment": combined.peak_index,
+            "vibe_description": vibe,
+            "pairwise_similarities": [p.model_dump() for p in pairwise],
+            "summary": summary,
+        }
+        saved = False
+        try:
+            loop = asyncio.get_running_loop()
+            saved = await loop.run_in_executor(
+                None,
+                save_analysis,
+                analysis_id,
+                "listener_cluster",
+                req.title,
+                persist_payload,
+                user_id,
+            )
+        except Exception:
+            logger.warning("Analysis persistence failed for %s", analysis_id)
+
         return ClusterAnalyzeResponse(
             analysis_id=analysis_id,
             songs=songs,
@@ -241,6 +269,7 @@ async def analyze_cluster(
             vibe_description=vibe,
             pairwise_similarities=pairwise,
             summary=summary,
+            saved=bool(saved),
         )
 
     finally:
@@ -325,6 +354,7 @@ async def analyze_cluster_stream(
         total = len(all_cluster_songs)
         songs: list[SongInfo] = []
         fingerprints: list[SongFingerprints] = []
+        song_cache_keys: list[str] = []
         audio_paths: list = []
         user_id = try_get_user_id(authorization)
 
@@ -391,9 +421,10 @@ async def analyze_cluster_stream(
                     )
                     songs.append(song_info)
                     fingerprints.append(song_fp)
+                    song_cache_keys.append(cache_key or "")
 
                     if user_id and cache_key:
-                        asyncio.get_event_loop().run_in_executor(
+                        asyncio.get_running_loop().run_in_executor(
                             None, record_user_interaction, user_id, cache_key,
                         )
 
@@ -411,7 +442,7 @@ async def analyze_cluster_stream(
                         "song": f"{artist} - {title}",
                         "index": idx + 1,
                         "total": total,
-                        "error": str(exc),
+                        "error": "Processing failed for this song",
                     })
                     continue
 
@@ -450,6 +481,30 @@ async def analyze_cluster_stream(
 
             analysis_id = f"analysis_{uuid.uuid4().hex[:12]}"
 
+            # ── Persist analysis ────────────────────────────────────
+            persist_payload = {
+                "songs": [s.model_dump() for s in songs],
+                "song_cache_keys": song_cache_keys,
+                "combined_region_scores": combined.region_scores.model_dump(),
+                "combined_timeline": combined.timeline_region_scores,
+                "peak_segment": combined.peak_index,
+                "vibe_description": vibe,
+                "pairwise_similarities": [p.model_dump() for p in pairwise],
+                "summary": summary,
+            }
+            saved = False
+            try:
+                saved = await asyncio.to_thread(
+                    save_analysis,
+                    analysis_id,
+                    "listener_cluster",
+                    req.title,
+                    persist_payload,
+                    user_id,
+                )
+            except Exception:
+                logger.warning("Analysis persistence failed for %s", analysis_id)
+
             response = ClusterAnalyzeResponse(
                 analysis_id=analysis_id,
                 songs=songs,
@@ -461,6 +516,7 @@ async def analyze_cluster_stream(
                 vibe_description=vibe,
                 pairwise_similarities=pairwise,
                 summary=summary,
+                saved=bool(saved),
             )
 
             yield _sse_event("complete", response.model_dump())

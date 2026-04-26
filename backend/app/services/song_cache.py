@@ -288,6 +288,44 @@ def find_similar_songs(
         return [], 0
 
 
+# ── Analysis persistence ────────────────────────────────────────────────────
+
+
+def save_analysis(
+    analysis_id: str,
+    kind: str,
+    title: str,
+    payload: dict,
+    owner_id: str | None = None,
+) -> bool:
+    """Persist an analysis result to the Supabase ``analyses`` table.
+
+    If *owner_id* is ``None`` (unauthenticated), the analysis is still
+    saved but won't appear in ``/me/analyses`` — it can only be
+    retrieved by direct ID or via a share link.
+
+    Returns ``True`` if the row was inserted successfully.
+    """
+    client = _get_client()
+    if client is None:
+        return False
+
+    try:
+        row = {
+            "id": analysis_id,
+            "kind": kind,
+            "title": title,
+            "payload": payload,
+            "owner_id": owner_id,
+        }
+        client.table("analyses").insert(row).execute()
+        logger.info("Saved analysis %s (kind=%s, owner=%s)", analysis_id, kind, owner_id)
+        return True
+    except Exception:
+        logger.exception("Failed to save analysis %s", analysis_id)
+        return False
+
+
 # ── User interaction tracking (for collaborative filtering) ─────────────────
 
 
