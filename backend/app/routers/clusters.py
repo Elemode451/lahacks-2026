@@ -31,25 +31,11 @@ from app.services.tribe import (
     encode_temporal_b64,
     resample_sequence,
 )
+from app.utils.auth import try_get_user_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/clusters", tags=["clusters"])
 
-
-def _try_get_user_id(authorization: str | None) -> str | None:
-    """Extract user ID from the Supabase JWT. Returns None if unauthenticated."""
-    if not authorization or not authorization.startswith("Bearer "):
-        return None
-    token = authorization.removeprefix("Bearer ")
-    try:
-        from app.services.supabase_client import get_supabase_admin
-        sb = get_supabase_admin()
-        user = sb.auth.get_user(token)
-        if user is None or user.user is None:
-            return None
-        return user.user.id
-    except Exception:
-        return None
 
 
 @router.post("/analyze", response_model=ClusterAnalyzeResponse)
@@ -134,7 +120,7 @@ async def analyze_cluster(
     songs: list[SongInfo] = []
     fingerprints: list[SongFingerprints] = []
     audio_paths: list = []
-    user_id = _try_get_user_id(authorization)
+    user_id = try_get_user_id(authorization)
 
     for cluster_song in all_cluster_songs:
         try:
@@ -340,7 +326,7 @@ async def analyze_cluster_stream(
         songs: list[SongInfo] = []
         fingerprints: list[SongFingerprints] = []
         audio_paths: list = []
-        user_id = _try_get_user_id(authorization)
+        user_id = try_get_user_id(authorization)
 
         try:
             for idx, cluster_song in enumerate(all_cluster_songs):
