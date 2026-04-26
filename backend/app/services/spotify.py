@@ -298,6 +298,52 @@ async def _yt_search_http(query: str) -> str | None:
     return None
 
 
+async def get_audio_features(spotify_id: str) -> dict | None:
+    """Fetch audio features for a single Spotify track by ID.
+
+    Returns a dict with keys like ``key``, ``mode``, ``tempo``,
+    ``time_signature``, etc., or *None* on failure.
+    """
+    token = await _get_token()
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"https://api.spotify.com/v1/audio-features/{spotify_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        if resp.status_code in (404, 400):
+            return None
+        resp.raise_for_status()
+        return resp.json()
+
+
+async def get_audio_features_batch(spotify_ids: list[str]) -> list[dict]:
+    """Fetch audio features for up to 100 Spotify tracks in one call.
+
+    Returns a list of feature dicts (``None`` entries are skipped for
+    tracks that could not be resolved).
+    """
+    if not spotify_ids:
+        return []
+
+    token = await _get_token()
+    results: list[dict] = []
+    # Spotify allows max 100 IDs per request
+    for i in range(0, len(spotify_ids), 100):
+        batch = spotify_ids[i : i + 100]
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                "https://api.spotify.com/v1/audio-features",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"ids": ",".join(batch)},
+            )
+            resp.raise_for_status()
+            features = resp.json().get("audio_features", [])
+            for feat in features:
+                if feat is not None:
+                    results.append(feat)
+    return results
+
+
 async def search_youtube_for_track(title: str, artist: str) -> str | None:
     """Search YouTube for an audio version of a Spotify track.
 

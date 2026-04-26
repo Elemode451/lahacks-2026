@@ -10,7 +10,9 @@ import uuid
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
 
 import numpy as np
-from app.models.schemas import AnalysisSummary, CreatorAnalyzeResponse, SongInfo
+from app.models.schemas import AnalysisSummary, CreatorAnalyzeResponse, KeyInfo, SongInfo
+from app.services.spotify import get_audio_features
+from app.services.music_theory import key_name, mood_for_key
 from app.services.audio import cleanup_audio, save_uploaded_audio
 from app.services.emotions import map_region_scores_to_emotions
 from app.services.song_cache import record_user_interaction, save_analysis, store_cached
@@ -39,6 +41,7 @@ async def analyze_creator_track(
     audio: UploadFile = File(...),
     title: str = Form("Untitled"),
     artist: str = Form("Unknown"),
+    spotify_id: str | None = Form(None),
     authorization: str | None = Header(None),
 ):
     """Analyze an uploaded track in creator mode.
@@ -61,11 +64,33 @@ async def analyze_creator_track(
     try:
         song_fp = await analyze_audio(audio_path)
 
+        # Fetch key info if a Spotify ID was provided
+        ki: KeyInfo | None = None
+        if spotify_id:
+            try:
+                feat = await get_audio_features(spotify_id)
+                if feat:
+                    k = feat.get("key")
+                    m = feat.get("mode")
+                    if k is not None and m is not None and k >= 0:
+                        ki = KeyInfo(
+                            key=k,
+                            mode=m,
+                            key_name=key_name(k, m),
+                            tempo=feat.get("tempo"),
+                            time_signature=feat.get("time_signature"),
+                            mood=mood_for_key(k, m),
+                        )
+            except Exception:
+                logger.warning("Failed to fetch audio features for %s", spotify_id)
+
         song_id = f"creator_{uuid.uuid4().hex[:12]}"
         song = SongInfo(
             song_id=song_id,
+            spotify_id=spotify_id,
             title=title,
             artist=artist,
+            key_info=ki,
         )
 
         analysis_id = f"analysis_{uuid.uuid4().hex[:12]}"
