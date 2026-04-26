@@ -8,10 +8,12 @@ import uuid
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
+import numpy as np
 from app.models.schemas import CreatorAnalyzeResponse, SongInfo
 from app.services.audio import cleanup_audio, save_uploaded_audio
 from app.services.tribe import (
-    _region_scores_dict,
+    _average_timelines,
+    _resample_raw,
     analyze_audio,
     describe_vibe,
     encode_fingerprint_b64,
@@ -67,8 +69,13 @@ async def analyze_creator_track(
         temporal_resampled = resample_sequence(song_fp.temporal_fingerprints)
         temporal_b64 = encode_temporal_b64(temporal_resampled)
 
-        # Resampled timeline (30 segments, matching temporal_fingerprints_b64)
-        combined_timeline = [_region_scores_dict(seg) for seg in temporal_resampled]
+        # Resampled timeline from raw prediction data (not normalized)
+        combined_timeline = _average_timelines([song_fp.timeline_region_scores])
+
+        # Peak segment in resampled 30-segment space
+        raw_resampled = _resample_raw(song_fp.temporal_fingerprints)
+        peak_norms = [float(np.linalg.norm(v)) for v in raw_resampled]
+        peak_seg = int(np.argmax(peak_norms))
 
         vibe = describe_vibe(song_fp.region_scores)
 
@@ -98,7 +105,7 @@ async def analyze_creator_track(
             fingerprint_id=song_fp.fingerprint_id,
             region_scores=song_fp.region_scores,
             timeline_region_scores=song_fp.timeline_region_scores,
-            peak_segment=song_fp.peak_index,
+            peak_segment=peak_seg,
             frames=[],
             top_matches=top_matches,
             summary=summary,
