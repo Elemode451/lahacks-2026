@@ -47,11 +47,11 @@ export default function MusicRadarChart({
           <PolarGrid gridType="polygon" stroke="rgba(13,59,102,0.12)" />
           <PolarAngleAxis
             dataKey="attribute"
-            tick={(props: { x: number; y: number; payload: { value: string }; textAnchor: string }) => (
+            tick={(props: { x: string | number; y: string | number; payload: { value: string }; textAnchor: string }) => (
               <text
-                x={props.x}
-                y={props.y}
-                textAnchor={props.textAnchor}
+                x={Number(props.x)}
+                y={Number(props.y)}
+                textAnchor={props.textAnchor as "inherit" | "end" | "start" | "middle"}
                 fill="rgba(13,59,102,0.5)"
                 fontSize={9}
                 fontWeight={600}
