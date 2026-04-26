@@ -276,29 +276,24 @@ async def analyze_cluster_stream(
     request: Request,
     authorization: str | None = Header(None),
 ):
-    """Stream analysis progress via Server-Sent Events.
+    """Stream analysis results via Server-Sent Events.
 
-    Same logic as POST /analyze, but sends per-song progress events
-    so the frontend can show real-time updates instead of waiting for
-    the full batch to complete.
+    Same logic as POST /analyze, but notifies the client each time a
+    song finishes and is committed to the database — no intermediate
+    polling or progress spam.
 
     ## SSE Events
 
     | Event | Data | Description |
     |-------|------|-------------|
-    | `progress` | `{song, index, total, status}` | Per-song status update |
-    | `song_complete` | `{song, index, total, cached}` | Song finished processing |
-    | `song_error` | `{song, index, total, error}` | Song failed |
+    | `song_complete` | `{song, index, total, cached}` | Song finished and cached to DB |
+    | `song_error` | `{song, index, total, error}` | Song failed (skipped) |
     | `complete` | Full ClusterAnalyzeResponse JSON | All songs done |
     | `error` | `{message}` | Fatal error |
 
     ## Frontend Usage
 
     ```js
-    const eventSource = new EventSource('/clusters/analyze/stream', {
-      method: 'POST',  // Use fetch + ReadableStream for POST
-    });
-    // Or with fetch:
     const resp = await fetch('/clusters/analyze/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -357,13 +352,6 @@ async def analyze_cluster_stream(
                 title = cluster_song.title or "Unknown"
                 artist = cluster_song.artist or "Unknown"
 
-                yield _sse_event("progress", {
-                    "song": f"{artist} - {title}",
-                    "index": idx + 1,
-                    "total": total,
-                    "status": "starting",
-                })
-
                 try:
                     youtube_url = cluster_song.youtube_url
 
@@ -397,23 +385,10 @@ async def analyze_cluster_stream(
                             cached = True
 
                     if song_fp is None:
-                        yield _sse_event("progress", {
-                            "song": f"{artist} - {title}",
-                            "index": idx + 1,
-                            "total": total,
-                            "status": "downloading",
-                        })
                         audio_path = await asyncio.to_thread(
                             download_youtube_audio, youtube_url
                         )
                         audio_paths.append(audio_path)
-
-                        yield _sse_event("progress", {
-                            "song": f"{artist} - {title}",
-                            "index": idx + 1,
-                            "total": total,
-                            "status": "analyzing",
-                        })
                         song_fp = await analyze_audio(
                             audio_path,
                             cache_key=cache_key,
@@ -436,6 +411,7 @@ async def analyze_cluster_stream(
                             None, record_user_interaction, user_id, cache_key,
                         )
 
+                    # Notify client only after song is cached to DB
                     yield _sse_event("song_complete", {
                         "song": f"{artist} - {title}",
                         "index": idx + 1,

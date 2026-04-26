@@ -149,8 +149,6 @@ async def _submit_and_poll(audio_path: Path) -> dict:
 
     Uses POST /submit (returns immediately) + GET /status/{job_id}
     to avoid Cloudflare's 100-second proxy timeout on free tunnels.
-    Falls back to the legacy POST /analyze if /submit returns 404
-    (old worker without async support).
     """
     import asyncio
     import httpx
@@ -167,11 +165,6 @@ async def _submit_and_poll(audio_path: Path) -> dict:
                         f"{worker}/submit",
                         files={"audio": (audio_path.name, f, "audio/wav")},
                     )
-
-                if resp.status_code == 404:
-                    # Worker doesn't have /submit — fall back to sync /analyze
-                    logger.info("Worker has no /submit, falling back to /analyze")
-                    return await _analyze_sync(audio_path)
 
                 resp.raise_for_status()
                 job_id = resp.json()["job_id"]
@@ -218,20 +211,6 @@ async def _submit_and_poll(audio_path: Path) -> dict:
     raise TimeoutError(f"Job {job_id} did not complete within {_POLL_TIMEOUT_S}s")
 
 
-async def _analyze_sync(audio_path: Path) -> dict:
-    """Legacy synchronous call to POST /analyze (may timeout on Cloudflare)."""
-    import httpx
-
-    async with httpx.AsyncClient(timeout=600.0) as client:
-        with open(audio_path, "rb") as f:
-            resp = await client.post(
-                f"{settings.tribe_worker_url}/analyze",
-                files={"audio": (audio_path.name, f, "audio/wav")},
-            )
-            resp.raise_for_status()
-            return resp.json()
-
-
 async def analyze_audio(
     audio_path: Path,
     *,
@@ -246,8 +225,8 @@ async def analyze_audio(
     cache before calling this function.
 
     In mock mode, generates structured fake data.
-    In real mode, submits to the async worker queue and polls for results
-    (avoids Cloudflare tunnel timeouts).
+    In real mode, submits to the async worker queue via POST /submit and
+    polls GET /status/{job_id} for results (avoids Cloudflare tunnel timeouts).
     """
     import asyncio
 
