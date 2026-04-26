@@ -239,7 +239,7 @@ async def _do_inference(
     if "preds_b64gz" in data:
         compressed = base64.b64decode(data["preds_b64gz"])
         raw = gzip.decompress(compressed)
-        preds = np.load(io.BytesIO(raw))
+        preds = np.load(io.BytesIO(raw)).astype(np.float32)
     else:
         preds = np.array(data["preds"], dtype=np.float32)
 
