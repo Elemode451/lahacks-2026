@@ -83,11 +83,11 @@ export default function LoginPage() {
         />
       </div>
 
-      {/* Magic Rings — more pronounced on dark background */}
+      {/* Magic Rings — orange to match logo */}
       <div className="absolute inset-0 pointer-events-none opacity-60">
         <MagicRings
           color="#f95738"
-          colorTwo="#0d3b66"
+          colorTwo="#ee964b"
           speed={0.4}
           ringCount={5}
           attenuation={6}
@@ -110,22 +110,23 @@ export default function LoginPage() {
         transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
         className="relative z-10 w-full max-w-md flex flex-col items-center"
       >
-        {/* Logo */}
-        <div className="flex items-center gap-4 mb-6">
-          <div className="flex">
-            <div className="bg-[#f4d35e] h-8 w-[4px]" />
-            <div className="bg-[#ee964b] h-8 w-[4px]" />
-            <div className="bg-[#f95738] h-8 w-[4px]" />
+        {/* Logo — frosted glass card */}
+        <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl px-10 py-8 flex flex-col items-center mb-10">
+          <div className="flex items-center gap-4 mb-3">
+            <div className="flex">
+              <div className="bg-[#f4d35e] h-8 w-[4px]" />
+              <div className="bg-[#ee964b] h-8 w-[4px]" />
+              <div className="bg-[#f95738] h-8 w-[4px]" />
+            </div>
+            <SeratoneLogo className="h-[50px] w-auto text-white" />
           </div>
-          <SeratoneLogo className="h-[50px] w-auto text-white" />
+          <p className="text-white/40 text-sm tracking-tight">
+            Music discovery through predicted brain response
+          </p>
         </div>
 
-        <p className="text-white/40 text-sm tracking-tight mb-20">
-          Music discovery through predicted brain response
-        </p>
-
         {/* Auth Buttons — spaced apart */}
-        <div className="w-full flex flex-col gap-6">
+        <div className="w-full flex flex-col gap-4">
           <button
             onClick={signInWithGoogle}
             className="w-full flex items-center justify-center gap-3 bg-white/10 backdrop-blur-sm border border-white/15 hover:bg-white/15 hover:border-white/25 rounded-full py-4 px-6 text-white font-medium text-base transition-all cursor-pointer hover:shadow-lg"
