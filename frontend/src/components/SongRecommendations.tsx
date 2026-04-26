@@ -57,6 +57,7 @@ export default function SongRecommendations({
     if (currentIndex < recommendations.length - 1) {
       setCurrentIndex((i) => i + 1);
     } else {
+      setCurrentIndex((i) => i + 1);
       onRefresh?.();
     }
   }, [currentSong, currentIndex, recommendations.length, onSongClick, onRefresh, onRequestCollaborative]);
@@ -71,6 +72,7 @@ export default function SongRecommendations({
     if (currentIndex < recommendations.length - 1) {
       setCurrentIndex((i) => i + 1);
     } else {
+      setCurrentIndex((i) => i + 1);
       onRefresh?.();
     }
   }, [currentIndex, recommendations.length, onRefresh, onRequestCollaborative]);
