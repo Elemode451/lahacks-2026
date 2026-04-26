@@ -141,7 +141,7 @@ def derive_fingerprints(preds: np.ndarray) -> SongFingerprints:
 
 
 _POLL_INTERVAL_S = 5       # seconds between /status polls
-_POLL_TIMEOUT_S = 600      # max wait for a single job
+_POLL_TIMEOUT_S = 1800     # max wait for a single job (30 min — accounts for queue depth)
 _SUBMIT_RETRIES = 3        # retry /submit on transient errors
 
 # In-flight background tasks keyed by cache_key so polling survives
