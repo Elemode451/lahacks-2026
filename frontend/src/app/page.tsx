@@ -147,6 +147,21 @@ export default function Home() {
 
   const peakSegment = (analysisResult?.peak_segment as number | undefined) ?? undefined;
 
+  const topMatches = useMemo(() => {
+    if (!analysisResult) return undefined;
+    const matches = analysisResult.top_matches as Array<{
+      song: { title: string; artist: string };
+      similarity_score: number;
+      matching_regions?: string[];
+    }> | undefined;
+    if (!matches || matches.length === 0) return undefined;
+    return matches.map((m) => ({
+      title: m.song.title,
+      artist: m.song.artist,
+      tag: m.matching_regions?.[0]?.replace(/_/g, " ") ?? `${Math.round(m.similarity_score * 100)}% match`,
+    }));
+  }, [analysisResult]);
+
   const layout = useMemo(() => {
     const contentH = vh - TOPBAR_H;
     const halfW = vw * 0.5;
@@ -213,6 +228,9 @@ export default function Home() {
     setProcessingTotal(0);
     setAnalysisResult(null);
     setCurrentSegment(0);
+    setSongs([]);
+    setUploadedFiles([]);
+    setInputValue("");
   };
 
   // ── Real API: Creator Mode (file upload) ──
@@ -313,7 +331,7 @@ export default function Home() {
         setProcessingProgress(data.index);
         setProcessingTotal(data.total);
         setProcessingStatus(
-          `Analyzed ${data.index}/${data.total}: ${data.song}${data.cached ? " (cached)" : ""}`,
+          `Analyzed ${data.index}/${data.total}: ${data.song}`,
         );
       });
 
@@ -504,7 +522,7 @@ export default function Home() {
                   overview={overviewText}
                   className="flex-1 min-w-0"
                 />
-                <SongRecommendations className="w-[40%] shrink-0" />
+                <SongRecommendations className="w-[40%] shrink-0" songs={topMatches} />
               </div>
             </motion.div>
           )}
