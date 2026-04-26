@@ -38,19 +38,22 @@ API docs at http://localhost:8000/docs
 
 ## API Endpoints
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/auth/signup` | Create account |
-| POST | `/auth/login` | Log in |
-| GET | `/spotify/search?q=...` | Search Spotify |
-| POST | `/creator/analyze` | Upload + analyze a track (creator mode) |
-| POST | `/clusters/analyze` | Analyze a song cluster (listener mode) |
-| POST | `/recommendations` | Get recommendations from a fingerprint |
-| POST | `/compare` | Compare two fingerprints |
-| GET | `/me/analyses` | List saved analyses |
-| GET | `/analyses/{id}` | Get analysis details |
-| POST | `/analyses/{id}/share` | Generate share link |
-| GET | `/share/{slug}` | View shared analysis |
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/auth/signup` | No | Create account |
+| POST | `/auth/login` | No | Log in |
+| GET | `/spotify/search?q=...` | No | Search Spotify |
+| POST | `/creator/analyze` | No | Upload + analyze a track (creator mode) |
+| POST | `/clusters/analyze` | Optional | Analyze a song cluster (listener mode); tracks user interactions when authenticated |
+| POST | `/recommendations/similar` | Optional | Brain-region cosine similarity recommendations; with auth can exclude previously recommended songs |
+| POST | `/recommendations/collaborative` | Required | "Users like you also like" — collaborative filtering |
+| GET | `/recommendations/history` | Required | Previously recommended songs for the user |
+| DELETE | `/recommendations/history` | Required | Clear recommendation history (resets de-duplication) |
+| POST | `/recommendations/compare` | No | Compare two fingerprints |
+| GET | `/me/analyses` | Required | List saved analyses |
+| GET | `/analyses/{id}` | Optional | Get analysis details (public if shared) |
+| POST | `/analyses/{id}/share` | Required | Generate share link |
+| GET | `/share/{slug}` | No | View shared analysis |
 
 ## Architecture
 
@@ -66,12 +69,13 @@ app/
 │   ├── creator.py       # Creator mode analysis
 │   ├── clusters.py      # Listener cluster analysis
 │   ├── analyses.py      # Saved analyses CRUD + sharing
-│   └── recommend.py     # Recommendations + comparison
+│   └── recommend.py     # Recommendations (similar, collaborative, history)
 ├── services/
 │   ├── audio.py         # YouTube download + audio file management
 │   ├── spotify.py       # Spotify API client
 │   ├── supabase_client.py # Supabase client singleton
 │   ├── tribe.py         # TRIBE v2 inference (mock + real)
+│   ├── song_cache.py    # Supabase cache + recommendation queries
 │   └── recommendations.py # Similarity search + cluster analysis
 └── static/              # Rendered brain visualization frames
 ```

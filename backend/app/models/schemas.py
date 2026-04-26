@@ -47,6 +47,10 @@ class SongMatch(BaseModel):
     similarity_score: float
     components: SimilarityComponents | None = None
     matching_regions: list[str] = []
+    source: str = Field(
+        "brain_similarity",
+        description="How this match was found: 'brain_similarity' or 'collaborative'.",
+    )
 
 
 # ── Creator Mode ────────────────────────────────────────────────────────────
@@ -281,13 +285,84 @@ class ClusterAnalyzeResponse(BaseModel):
 # ── Recommendations ────────────────────────────────────────────────────────
 
 
-class RecommendRequest(BaseModel):
-    fingerprint_id: str
-    n: int = 20
+class SimilarRequest(BaseModel):
+    """Request for brain-similarity recommendations.
+
+    Provide either a YouTube URL or Spotify ID of the target song (must have
+    been analyzed previously via `/clusters/analyze`). Returns songs with
+    similar brain-region activation patterns via cosine similarity.
+    """
+
+    youtube_url: str | None = Field(
+        None,
+        description="YouTube URL of the target song (must already be in the cache).",
+    )
+    spotify_id: str | None = Field(
+        None,
+        description="Spotify track ID of the target song (must already be in the cache).",
+    )
+    n: int = Field(
+        10,
+        ge=1,
+        le=50,
+        description="Number of recommendations to return (default 10, max 50).",
+    )
+    exclude_previously_recommended: bool = Field(
+        False,
+        description="If true and authenticated, exclude songs already recommended to this user.",
+    )
 
 
-class RecommendResponse(BaseModel):
-    recommendations: list[SongMatch] = []
+class SimilarResponse(BaseModel):
+    """Brain-similarity recommendations.
+
+    Each recommendation is ranked by cosine similarity on the 6 brain-region
+    activation values (auditory, superior_temporal, temporo_parietal,
+    inferior_frontal, multisensory, whole_cortex).
+    """
+
+    target: SongInfo | None = Field(
+        None,
+        description="The target song that recommendations are based on.",
+    )
+    catalog_size: int = Field(
+        0,
+        description="Total number of songs in the cached catalog.",
+    )
+    recommendations: list[SongMatch] = Field(
+        default=[],
+        description="Songs ranked by brain-response similarity.",
+    )
+
+
+class CollaborativeResponse(BaseModel):
+    """Collaborative filtering recommendations ('users like you also like').
+
+    Finds users who analyzed the same songs, then surfaces songs those
+    users analyzed that the current user hasn't. Requires authentication.
+    """
+
+    recommendations: list[SongMatch] = Field(
+        default=[],
+        description="Songs recommended via collaborative filtering.",
+    )
+    similar_user_count: int = Field(
+        0,
+        description="Number of users with overlapping taste used for filtering.",
+    )
+
+
+class RecommendationHistoryResponse(BaseModel):
+    """Previously recommended songs for the authenticated user."""
+
+    songs: list[SongMatch] = Field(
+        default=[],
+        description="Songs previously recommended to this user.",
+    )
+    total: int = Field(
+        0,
+        description="Total number of unique songs recommended to this user.",
+    )
 
 
 # ── Compare ─────────────────────────────────────────────────────────────────
