@@ -55,7 +55,7 @@ export default function AudioTimeline({
   const [isPlaying, setIsPlaying] = useState(false);
   const rafRef = useRef<number | null>(null);
   const lastTsRef = useRef<number | null>(null);
-  const progressRef = useRef(0);
+  const fracRef = useRef(0); // fractional accumulator for smooth playback
   const waveRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
 
@@ -71,22 +71,21 @@ export default function AudioTimeline({
       return;
     }
 
-    // Sync float accumulator to the current discrete index when playback starts
-    progressRef.current = activeIndex;
+    fracRef.current = controlled ? (currentIndex ?? 0) : localIndex;
 
     const loop = (ts: number) => {
       const { duration: dur, barCount: bc, controlled: ctrl, onSegmentChange: osc } = tickDepsRef.current;
       if (lastTsRef.current !== null) {
         const dt = (ts - lastTsRef.current) / 1000;
         const advance = dt / (dur / bc);
-        progressRef.current += advance;
+        fracRef.current += advance;
 
-        if (progressRef.current >= bc - 1) {
-          progressRef.current = bc - 1;
+        if (fracRef.current >= bc - 1) {
+          fracRef.current = bc - 1;
           setIsPlaying(false);
         }
 
-        const rounded = Math.round(progressRef.current);
+        const rounded = Math.round(fracRef.current);
         if (ctrl && osc) {
           osc(rounded);
         } else {
@@ -101,7 +100,7 @@ export default function AudioTimeline({
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [isPlaying, activeIndex]);
+  }, [isPlaying]);
 
   const seekTo = useCallback(
     (clientX: number) => {
@@ -110,7 +109,7 @@ export default function AudioTimeline({
       const { left, width } = el.getBoundingClientRect();
       const ratio = Math.max(0, Math.min(1, (clientX - left) / width));
       const idx = Math.round(ratio * (barCount - 1));
-      progressRef.current = idx;
+      fracRef.current = idx;
       if (controlled) {
         onSegmentChange(idx);
       } else {
@@ -120,7 +119,7 @@ export default function AudioTimeline({
     [barCount, controlled, onSegmentChange],
   );
 
-  const position = activeIndex / (barCount - 1);
+  const position = barCount > 1 ? activeIndex / (barCount - 1) : 0;
 
   return (
     <div className={`flex flex-col gap-2 w-full ${className}`}>
