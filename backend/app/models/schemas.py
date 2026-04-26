@@ -335,6 +335,10 @@ class ClusterAnalyzeResponse(BaseModel):
             "Contains emotion labels with intensities, dominant emotions, and a natural-language summary."
         ),
     )
+    top_matches: list["SongMatch"] = Field(
+        default=[],
+        description="Similar songs found in the catalog by brain-region cosine similarity.",
+    )
 
 
 # ── Recommendations ────────────────────────────────────────────────────────
