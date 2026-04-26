@@ -3,7 +3,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import dynamic from "next/dynamic";
-import { X, Send, LogOut, Clock } from "lucide-react";
+import { X, Send, LogOut, Clock, Music, Brain, MessageCircle, Radio } from "lucide-react";
 import {
   SeratoneLogo,
   SoundBarsIcon,
@@ -31,6 +31,9 @@ const ChatInterface = dynamic(() => import("@/components/ChatInterface"), {
   ssr: false,
 });
 const SongRecommendations = dynamic(() => import("@/components/SongRecommendations"), {
+  ssr: false,
+});
+const KeyInfoDisplay = dynamic(() => import("@/components/KeyInfo"), {
   ssr: false,
 });
 
@@ -660,13 +663,13 @@ export default function Home() {
 
       {/* User info + sign out */}
       <div
-        className="absolute top-0 right-8 z-20 flex items-center gap-4"
+        className="absolute top-0 right-8 z-20 flex items-center gap-3"
         style={{ height: TOPBAR_H }}
       >
-        <span className="text-[#0d3b66]/50 text-sm">{displayName}</span>
+        <span className="text-[#0d3b66]/45 text-sm font-medium">{displayName}</span>
         <button
           onClick={signOut}
-          className="text-[#0d3b66]/30 hover:text-[#f95738] transition-colors cursor-pointer"
+          className="text-[#0d3b66]/25 hover:text-[#f95738] hover:bg-[rgba(249,87,56,0.06)] transition-all duration-200 cursor-pointer p-2 rounded-xl"
           title="Sign out"
         >
           <LogOut className="w-4 h-4" />
@@ -686,43 +689,91 @@ export default function Home() {
         <AnimatePresence>
           {viewState === "analysis" && (
             <motion.div
-              className="absolute inset-0 px-10 pt-8 pb-8 flex flex-col"
+              className="absolute inset-0 px-8 pt-6 pb-6 flex flex-col gap-4 overflow-y-auto custom-scrollbar"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.6, delay: 0.4 }}
             >
-              {/* Timeline — narrower, centered */}
-              <AudioTimeline
-                duration={214}
-                segmentActivations={timelineActivations}
-                peakIndex={peakSegment}
-                currentIndex={currentSegment}
-                onSegmentChange={setCurrentSegment}
-                className="max-w-[260px] mx-auto w-full shrink-0"
+              {/* Timeline Section */}
+              <motion.div
+                className="glass-card px-6 py-5 shrink-0"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.5, ease: panelEase }}
+              >
+                <div className="flex items-center gap-2 mb-3">
+                  <Radio className="w-3.5 h-3.5 text-[#0d3b66]/40" />
+                  <h3 className="section-header">Timeline</h3>
+                </div>
+                <AudioTimeline
+                  duration={214}
+                  segmentActivations={timelineActivations}
+                  peakIndex={peakSegment}
+                  currentIndex={currentSegment}
+                  onSegmentChange={setCurrentSegment}
+                  className="max-w-[320px] mx-auto w-full"
+                />
+              </motion.div>
+
+              {/* Radar Chart Section */}
+              <motion.div
+                className="glass-card px-6 py-5 shrink-0"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.6, ease: panelEase }}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <Brain className="w-3.5 h-3.5 text-[#0d3b66]/40" />
+                  <h3 className="section-header">Cortical Profile</h3>
+                </div>
+                <div className="flex justify-center">
+                  <MusicRadarChart data={radarData} className="w-full max-w-[340px]" style={{ height: "min(220px, 26vh)" }} />
+                </div>
+              </motion.div>
+
+              {/* Key Info */}
+              <KeyInfoDisplay
+                analysisResult={analysisResult}
+                className="mt-3 px-1"
               />
 
-              {/* Radar chart — constrained, centered */}
-              <div className="flex justify-center shrink-0 mt-2">
-                <MusicRadarChart data={radarData} className="w-full max-w-[340px]" style={{ height: "min(220px, 26vh)" }} />
-              </div>
-
               {/* Chat + Song Recommendations */}
-              <div className="flex-1 min-h-0 flex gap-4 mt-4">
-                <ChatInterface
-                  overview={overviewText}
-                  analysisResult={analysisResult}
-                  token={session?.access_token ?? null}
-                  className="flex-1 min-w-0"
-                />
-                <SongRecommendations
-                  className="w-[40%] shrink-0"
-                  recommendations={recommendations}
-                  loading={recsLoading}
-                  onSongClick={handleRecommendedSongClick}
-                  onRefresh={handleRefreshRecommendations}
-                />
-              </div>
+              <motion.div
+                className="flex-1 min-h-0 flex gap-4"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.7, ease: panelEase }}
+              >
+                {/* Chat Section */}
+                <div className="glass-card px-5 py-4 flex-1 min-w-0 flex flex-col">
+                  <div className="flex items-center gap-2 mb-3">
+                    <MessageCircle className="w-3.5 h-3.5 text-[#0d3b66]/40" />
+                    <h3 className="section-header">Ask Sera</h3>
+                  </div>
+                  <ChatInterface
+                    overview={overviewText}
+                    analysisResult={analysisResult}
+                    token={session?.access_token ?? null}
+                    className="flex-1 min-w-0"
+                  />
+                </div>
+
+                {/* Recommendations Section */}
+                <div className="glass-card px-5 py-4 w-[40%] shrink-0 flex flex-col">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Music className="w-3.5 h-3.5 text-[#0d3b66]/40" />
+                    <h3 className="section-header">Discover</h3>
+                  </div>
+                  <SongRecommendations
+                    className="flex-1 min-h-0"
+                    recommendations={recommendations}
+                    loading={recsLoading}
+                    onSongClick={handleRecommendedSongClick}
+                    onRefresh={handleRefreshRecommendations}
+                  />
+                </div>
+              </motion.div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -740,36 +791,83 @@ export default function Home() {
       <AnimatePresence>
         {viewState === "processing" && (
           <motion.div
-            className="absolute z-30 flex flex-col items-center justify-center bg-[#fffdf5]/90 backdrop-blur-sm"
+            className="absolute z-30 flex flex-col items-center justify-center bg-[#fffdf5]/90 backdrop-blur-md"
             style={{ inset: 0 }}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            transition={{ duration: 0.4 }}
           >
-            <div className="w-8 h-8 border-2 border-[#f95738] border-t-transparent rounded-full animate-spin mb-6" />
-            <p className="text-[#f95738] font-medium text-lg tracking-tight mb-2">
-              Analyzing...
-            </p>
+            {/* Pulsing brain icon */}
+            <motion.div
+              className="pulse-glow mb-8"
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ duration: 0.6, ease: panelEase }}
+            >
+              <div className="w-16 h-16 rounded-full bg-[rgba(249,87,56,0.12)] flex items-center justify-center">
+                <Brain className="w-8 h-8 text-[#f95738]" />
+              </div>
+            </motion.div>
+
+            <motion.p
+              className="shimmer-text font-semibold text-xl tracking-tight mb-2"
+              style={{ fontFamily: "var(--font-display)" }}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2, duration: 0.4 }}
+            >
+              Analyzing your music
+            </motion.p>
+
+            <motion.p
+              className="text-[#0d3b66]/40 text-sm mb-6"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.3 }}
+            >
+              Predicting cortical response patterns
+            </motion.p>
+
             {processingTotal > 0 && (
-              <div className="w-64 mb-4">
-                <div className="w-full h-2 rounded-full bg-[rgba(249,87,56,0.15)] overflow-hidden">
+              <motion.div
+                className="w-72 mb-5"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.4 }}
+              >
+                <div className="w-full h-2.5 rounded-full bg-[rgba(249,87,56,0.1)] overflow-hidden relative">
                   <motion.div
-                    className="h-full rounded-full bg-[#f95738]"
+                    className="h-full rounded-full bg-gradient-to-r from-[#f95738] to-[#ee964b] relative overflow-hidden"
                     initial={{ width: 0 }}
                     animate={{
                       width: `${(processingProgress / processingTotal) * 100}%`,
                     }}
-                    transition={{ duration: 0.3 }}
-                  />
+                    transition={{ duration: 0.5, ease: panelEase }}
+                  >
+                    <div
+                      className="absolute inset-0 opacity-40"
+                      style={{
+                        background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent)",
+                        animation: "progress-shimmer 1.5s infinite",
+                      }}
+                    />
+                  </motion.div>
                 </div>
-                <p className="text-[#f95738]/60 text-xs mt-2 text-center">
-                  {processingProgress} / {processingTotal}
+                <p className="text-[#0d3b66]/35 text-xs mt-2.5 text-center font-medium tabular-nums">
+                  {processingProgress} of {processingTotal} processed
                 </p>
-              </div>
+              </motion.div>
             )}
-            <p className="text-[#f95738]/60 text-sm text-center max-w-md px-8">
+
+            <motion.p
+              className="text-[#0d3b66]/35 text-xs text-center max-w-sm px-8"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.5 }}
+            >
               {processingStatus}
-            </p>
+            </motion.p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -809,8 +907,10 @@ export default function Home() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0, transition: { duration: 0.1 } }}
+                whileHover={{ scale: 1.04 }}
+                whileTap={{ scale: 0.96 }}
               >
-                <span className="font-medium text-xl tracking-[-0.8px]">import</span>
+                <span className="font-semibold text-xl tracking-[-0.8px]" style={{ fontFamily: "var(--font-display)" }}>import</span>
                 <SoundBarsIcon className="size-6" />
               </motion.button>
             ) : (
@@ -823,26 +923,25 @@ export default function Home() {
               >
                 {/* Header: "import:" left, icon tabs right */}
                 <div className="flex justify-between items-start">
-                  <h2 className="font-medium text-[#f95738] text-[clamp(18px,2vw,26px)] tracking-[-1px] leading-none">import:</h2>
-                  <div className="flex gap-[clamp(12px,1.6vw,20px)] text-[#f95738] items-center">
-                    <button
-                      className={`transition-all duration-200 cursor-pointer p-1 ${importType === "file" ? "opacity-100 scale-110" : "opacity-40 hover:opacity-70"}`}
-                      onClick={() => setImportType("file")}
-                    >
-                      <FileIcon className="w-[clamp(18px,1.6vw,24px)] h-[clamp(20px,1.8vw,28px)]" />
-                    </button>
-                    <button
-                      className={`transition-all duration-200 cursor-pointer p-1 ${importType === "spotify" ? "opacity-100 scale-110" : "opacity-40 hover:opacity-70"}`}
-                      onClick={() => setImportType("spotify")}
-                    >
-                      <SpotifyIcon className="w-[clamp(20px,1.8vw,26px)] h-[clamp(20px,1.8vw,26px)]" />
-                    </button>
-                    <button
-                      className={`transition-all duration-200 cursor-pointer p-1 ${importType === "youtube" ? "opacity-100 scale-110" : "opacity-40 hover:opacity-70"}`}
-                      onClick={() => setImportType("youtube")}
-                    >
-                      <YouTubeIcon className="w-[clamp(22px,2vw,28px)] h-[clamp(16px,1.4vw,20px)]" />
-                    </button>
+                  <h2 className="text-[#f95738] text-[clamp(18px,2vw,26px)] tracking-[-1px] leading-none" style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}>import:</h2>
+                  <div className="flex gap-[clamp(8px,1.2vw,14px)] text-[#f95738] items-center">
+                    {([["file", FileIcon], ["spotify", SpotifyIcon], ["youtube", YouTubeIcon]] as const).map(([type, Icon]) => (
+                      <motion.button
+                        key={type}
+                        className={`relative cursor-pointer p-1.5 rounded-xl transition-colors ${importType === type ? "bg-[rgba(249,87,56,0.12)]" : "hover:bg-[rgba(249,87,56,0.06)]"}`}
+                        onClick={() => setImportType(type as ImportType)}
+                        whileTap={{ scale: 0.92 }}
+                      >
+                        <Icon className={`w-[clamp(18px,1.6vw,24px)] h-[clamp(18px,1.6vw,24px)] transition-opacity duration-200 ${importType === type ? "opacity-100" : "opacity-40"}`} />
+                        {importType === type && (
+                          <motion.div
+                            className="absolute bottom-0 left-1/2 -translate-x-1/2 w-4 h-0.5 rounded-full bg-[#f95738]"
+                            layoutId="import-tab-indicator"
+                            transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                          />
+                        )}
+                      </motion.button>
+                    ))}
                   </div>
                 </div>
 
@@ -868,39 +967,54 @@ export default function Home() {
                         />
                         {uploadedFiles.length === 0 ? (
                           <div className="flex-1 flex flex-col min-h-0">
-                            <div
-                              className={`${savedAnalyses.length > 0 ? "h-[45%]" : "flex-1"} flex flex-col items-center justify-center cursor-pointer relative rounded-[30px] shrink-0`}
+                            <motion.div
+                              className={`${savedAnalyses.length > 0 ? "h-[45%]" : "flex-1"} flex flex-col items-center justify-center cursor-pointer relative shrink-0 dropzone-border group`}
                               onClick={() => fileInputRef.current?.click()}
                               onDragOver={(e) => e.preventDefault()}
                               onDrop={(e) => { e.preventDefault(); handleFileSelect(e.dataTransfer.files); }}
+                              whileHover={{ scale: 1.01 }}
+                              whileTap={{ scale: 0.99 }}
+                              transition={{ type: "spring", stiffness: 400, damping: 30 }}
                             >
-                              <div className="absolute inset-0 rounded-[30px] border-[3px] border-[#f95738] border-dashed pointer-events-none opacity-40" />
-                              <UploadIcon className="w-[clamp(24px,2.5vw,36px)] h-[clamp(24px,2.5vw,36px)] mb-4" />
+                              <motion.div
+                                initial={{ y: 0 }}
+                                animate={{ y: [-2, 2, -2] }}
+                                transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                              >
+                                <UploadIcon className="w-[clamp(24px,2.5vw,36px)] h-[clamp(24px,2.5vw,36px)] mb-4 group-hover:scale-110 transition-transform duration-300" />
+                              </motion.div>
                               <p className="text-[clamp(13px,1.1vw,16px)] font-medium tracking-tight">Drag and drop files here</p>
-                              <p className="text-[clamp(11px,0.9vw,13px)] mt-1.5 opacity-60">or click to browse</p>
-                            </div>
+                              <p className="text-[clamp(11px,0.9vw,13px)] mt-1.5 opacity-50">or click to browse</p>
+                            </motion.div>
 
                             {savedAnalyses.length > 0 && (
-                              <div className="flex-1 min-h-0 flex flex-col mt-4">
-                                <div className="flex items-center gap-2 mb-2 shrink-0">
-                                  <Clock className="w-3.5 h-3.5 opacity-60" />
-                                  <span className="text-xs font-medium opacity-60 tracking-tight">My Uploads</span>
+                              <div className="flex-1 min-h-0 flex flex-col mt-5">
+                                <div className="flex items-center gap-2 mb-3 shrink-0">
+                                  <Clock className="w-3.5 h-3.5 opacity-50" />
+                                  <span className="text-xs font-semibold opacity-50 tracking-wide uppercase" style={{ fontSize: 10 }}>Previous Analyses</span>
                                 </div>
                                 <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-2">
-                                  {savedAnalyses.map((a) => (
-                                    <button
+                                  {savedAnalyses.map((a, idx) => (
+                                    <motion.button
                                       key={a.analysis_id}
                                       onClick={() => handleViewSavedAnalysis(a.analysis_id)}
-                                      className="w-full text-left bg-[rgba(249,87,56,0.06)] border border-[rgba(249,87,56,0.15)] rounded-full flex items-center gap-3 hover:bg-[rgba(249,87,56,0.12)] transition-colors cursor-pointer"
-                                      style={{ padding: "10px 20px" }}
+                                      className="w-full text-left bg-[rgba(249,87,56,0.05)] border border-[rgba(249,87,56,0.12)] rounded-2xl flex items-center gap-3 hover:bg-[rgba(249,87,56,0.12)] hover:border-[rgba(249,87,56,0.25)] transition-all duration-200 cursor-pointer group"
+                                      style={{ padding: "12px 18px" }}
+                                      initial={{ opacity: 0, x: -8 }}
+                                      animate={{ opacity: 1, x: 0 }}
+                                      transition={{ delay: idx * 0.05 }}
+                                      whileHover={{ x: 3 }}
                                     >
+                                      <div className="w-7 h-7 rounded-lg bg-[rgba(249,87,56,0.1)] flex items-center justify-center shrink-0 group-hover:bg-[rgba(249,87,56,0.18)] transition-colors">
+                                        <Music className="w-3.5 h-3.5 text-[#f95738]/60" />
+                                      </div>
                                       <span className="font-medium truncate text-sm flex-1">{a.title}</span>
                                       {a.created_at && (
-                                        <span className="text-[10px] opacity-40 shrink-0">
+                                        <span className="text-[9px] opacity-35 shrink-0 font-medium">
                                           {new Date(a.created_at).toLocaleDateString()}
                                         </span>
                                       )}
-                                    </button>
+                                    </motion.button>
                                   ))}
                                 </div>
                               </div>
@@ -950,25 +1064,34 @@ export default function Home() {
                         className="relative z-10 w-full flex-1 min-h-0 flex flex-col"
                       >
                         <form onSubmit={handleAddSong} className="w-full">
-                          <div className="relative flex items-center">
+                          <div className="relative flex items-center group">
+                            <div className="absolute left-4 pointer-events-none text-[#f95738]/40">
+                              {importType === "spotify" ? (
+                                <SpotifyIcon className="w-4 h-4" />
+                              ) : (
+                                <YouTubeIcon className="w-4.5 h-3.5" />
+                              )}
+                            </div>
                             <input
                               type="text"
                               value={inputValue}
                               onChange={(e) => setInputValue(e.target.value)}
                               placeholder={
                                 importType === "spotify"
-                                  ? "Paste Spotify track/playlist link..."
+                                  ? "Paste Spotify track or playlist link..."
                                   : "Paste YouTube video URL..."
                               }
-                              className="w-full bg-[rgba(249,87,56,0.06)] border border-[rgba(249,87,56,0.7)] focus:border-[#f95738] rounded-full text-[#f95738] placeholder-[rgba(249,87,56,0.75)] outline-none text-sm transition-colors"
-                              style={{ padding: "13px 64px 13px 24px" }}
+                              className="w-full bg-[rgba(249,87,56,0.04)] border border-[rgba(249,87,56,0.5)] focus:border-[#f95738] focus:bg-[rgba(249,87,56,0.06)] rounded-full text-[#f95738] placeholder-[rgba(249,87,56,0.5)] outline-none text-sm transition-all duration-200"
+                              style={{ padding: "13px 64px 13px 40px" }}
                             />
-                            <button
+                            <motion.button
                               type="submit"
-                              className="absolute right-[clamp(6px,0.8vw,10px)] bg-[#f95738] text-white w-[clamp(28px,2.8vw,36px)] h-[clamp(28px,2.8vw,36px)] rounded-full hover:bg-[#d84b31] transition-colors flex items-center justify-center"
+                              className="absolute right-[clamp(6px,0.8vw,10px)] bg-[#f95738] text-white w-[clamp(28px,2.8vw,36px)] h-[clamp(28px,2.8vw,36px)] rounded-full hover:bg-[#d84b31] transition-all duration-200 flex items-center justify-center hover:shadow-[0_2px_8px_rgba(249,87,56,0.3)]"
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
                             >
                               <Send className="size-3.5 text-white -translate-x-px translate-y-px" />
-                            </button>
+                            </motion.button>
                           </div>
                         </form>
 
@@ -981,31 +1104,38 @@ export default function Home() {
                                   animate={{ opacity: 1 }}
                                   className="h-full flex flex-col items-center justify-center text-[#f95738]"
                                 >
-                                  <p className="text-[clamp(13px,1.1vw,16px)] font-medium tracking-tight">List is empty</p>
+                                  <div className="w-12 h-12 rounded-2xl bg-[rgba(249,87,56,0.08)] flex items-center justify-center mb-3">
+                                    {importType === "spotify" ? (
+                                      <SpotifyIcon className="w-5 h-5 opacity-50" />
+                                    ) : (
+                                      <YouTubeIcon className="w-6 h-4.5 opacity-50" />
+                                    )}
+                                  </div>
+                                  <p className="text-[clamp(13px,1.1vw,16px)] font-medium tracking-tight">No songs added yet</p>
                                   <p className="text-[clamp(11px,0.9vw,13px)] mt-1.5 text-center max-w-xs opacity-40">
-                                    {importType === "spotify" && "Add Spotify links to begin analysis"}
-                                    {importType === "youtube" && "Add YouTube video links to begin analysis"}
+                                    {importType === "spotify" && "Paste Spotify links above to get started"}
+                                    {importType === "youtube" && "Paste YouTube links above to get started"}
                                   </p>
                                 </motion.div>
                               ) : (
-                                <div className="flex flex-col gap-3">
+                                <div className="flex flex-col gap-2.5">
                                   {songs.map((song, idx) => (
                                     <motion.div
                                       key={`${song}-${idx}`}
                                       initial={{ opacity: 0, y: 10 }}
                                       animate={{ opacity: 1, y: 0 }}
                                       exit={{ opacity: 0, scale: 0.95 }}
-                                      className="relative bg-[rgba(249,87,56,0.08)] border border-[rgba(249,87,56,0.2)] rounded-full flex items-center group w-full"
-                                      style={{ padding: "13px 64px 13px 24px" }}
+                                      className="relative bg-[rgba(249,87,56,0.06)] border border-[rgba(249,87,56,0.15)] rounded-2xl flex items-center group w-full hover:bg-[rgba(249,87,56,0.1)] hover:border-[rgba(249,87,56,0.25)] transition-all duration-200"
+                                      style={{ padding: "12px 56px 12px 20px" }}
                                     >
                                       <span className="text-[#f95738] font-medium truncate text-sm">
                                         {song}
                                       </span>
                                       <button
                                         onClick={() => handleRemoveSong(idx)}
-                                        className="absolute right-[clamp(6px,0.8vw,10px)] text-[#f95738] hover:text-[#d84b31] transition-colors flex items-center justify-center w-[clamp(28px,2.8vw,36px)] h-[clamp(28px,2.8vw,36px)] rounded-full"
+                                        className="absolute right-2 text-[#f95738]/50 hover:text-[#d84b31] hover:bg-[rgba(249,87,56,0.1)] transition-all duration-200 flex items-center justify-center w-8 h-8 rounded-xl"
                                       >
-                                        <X className="size-4" />
+                                        <X className="size-3.5" />
                                       </button>
                                     </motion.div>
                                   ))}
@@ -1021,19 +1151,21 @@ export default function Home() {
 
                 {/* Bottom: count left + analyze pill right */}
                 <div className="flex justify-between items-center shrink-0" style={{ marginTop: "clamp(12px, 3%, 24px)" }}>
-                  <span className="text-[#f95738] font-medium text-[clamp(12px,1.1vw,16px)] tracking-[-0.5px]">
+                  <span className="text-[#f95738]/70 font-medium text-[clamp(11px,1vw,14px)] tracking-[-0.3px]">
                     {importType === "file"
                       ? `${uploadedFiles.length} ${uploadedFiles.length === 1 ? "file" : "files"} added`
                       : `${songs.length} ${songs.length === 1 ? "song" : "songs"} added`}
                   </span>
-                  <button
+                  <motion.button
                     onClick={handleAnalyze}
                     disabled={!canAnalyze}
-                    className={`transition-colors text-[#f95738] font-medium text-[clamp(14px,1.2vw,18px)] tracking-[-0.72px] rounded-full ${canAnalyze ? "bg-[rgba(249,87,56,0.35)] hover:bg-[rgba(249,87,56,0.5)] cursor-pointer" : "bg-[rgba(249,87,56,0.15)] opacity-40 cursor-not-allowed"}`}
+                    className={`text-[#f95738] font-semibold text-[clamp(13px,1.1vw,16px)] tracking-[-0.5px] rounded-full transition-all duration-200 ${canAnalyze ? "bg-[rgba(249,87,56,0.35)] hover:bg-[rgba(249,87,56,0.5)] cursor-pointer hover:shadow-[0_4px_16px_rgba(249,87,56,0.2)]" : "bg-[rgba(249,87,56,0.12)] opacity-35 cursor-not-allowed"}`}
                     style={{ padding: "clamp(8px, 1vh, 12px) clamp(20px, 2.5vw, 36px)" }}
+                    whileHover={canAnalyze ? { scale: 1.03 } : {}}
+                    whileTap={canAnalyze ? { scale: 0.97 } : {}}
                   >
                     analyze
-                  </button>
+                  </motion.button>
                 </div>
               </motion.div>
             )}

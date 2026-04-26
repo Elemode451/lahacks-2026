@@ -14,14 +14,19 @@ from app.models.schemas import (
     ClusterAnalyzeRequest,
     ClusterAnalyzeResponse,
     ClusterSong,
+    KeyAnalysis,
+    KeyComparison,
+    KeyInfo,
     PairwiseSimilarity,
     SongInfo,
 )
 from app.services.audio import cleanup_audio, download_youtube_audio
+from app.services.emotions import map_region_scores_to_emotions
 from app.services.recommendations import compare_songs, final_similarity
 from app.config import settings
 from app.services.song_cache import get_cached, make_lookup_key, record_user_interaction, save_analysis
-from app.services.spotify import get_playlist_tracks, get_track_info, parse_playlist_id, search_youtube_for_track
+from app.services.spotify import get_audio_features_batch, get_playlist_tracks, get_track_info, parse_playlist_id, search_youtube_for_track
+from app.services.music_theory import compare_keys, key_name, mood_for_key
 from app.services.tribe import (
     SongFingerprints,
     aggregate_fingerprints,
@@ -36,6 +41,93 @@ from app.utils.auth import try_get_user_id
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/clusters", tags=["clusters"])
 
+
+async def _build_key_analysis(songs: list[SongInfo]) -> KeyAnalysis | None:
+    """Fetch Spotify audio features and build a KeyAnalysis for the given songs."""
+    spotify_ids = [s.spotify_id for s in songs if s.spotify_id]
+    if not spotify_ids:
+        return None
+
+    try:
+        features_list = await get_audio_features_batch(spotify_ids)
+    except Exception:
+        logger.warning("Failed to fetch audio features batch")
+        return None
+
+    # Map spotify_id → features dict
+    feat_by_id: dict[str, dict] = {}
+    for feat in features_list:
+        sid = feat.get("id")
+        if sid:
+            feat_by_id[sid] = feat
+
+    song_keys: dict[str, KeyInfo] = {}
+    keyed_songs: list[tuple[str, int, int]] = []  # (song_id, key, mode)
+
+    for song in songs:
+        if not song.spotify_id or song.spotify_id not in feat_by_id:
+            continue
+        feat = feat_by_id[song.spotify_id]
+        k = feat.get("key")
+        m = feat.get("mode")
+        if k is None or m is None or k < 0:
+            continue
+        ki = KeyInfo(
+            key=k,
+            mode=m,
+            key_name=key_name(k, m),
+            tempo=feat.get("tempo"),
+            time_signature=feat.get("time_signature"),
+            mood=mood_for_key(k, m),
+        )
+        song_keys[song.song_id] = ki
+        song.key_info = ki
+        keyed_songs.append((song.song_id, k, m))
+
+    if not song_keys:
+        return None
+
+    # Pairwise key comparisons
+    comparisons: list[KeyComparison] = []
+    if len(keyed_songs) > 1:
+        for i in range(len(keyed_songs)):
+            for j in range(i + 1, len(keyed_songs)):
+                sid_a, ka, ma = keyed_songs[i]
+                sid_b, kb, mb = keyed_songs[j]
+                result = compare_keys(ka, ma, kb, mb)
+                comparisons.append(KeyComparison(
+                    song_a=sid_a,
+                    song_b=sid_b,
+                    distance=result["distance"],
+                    relationship=result["relationship"],
+                    description=result["description"],
+                ))
+
+    # Summary
+    key_names_list = [ki.key_name for ki in song_keys.values() if ki.key_name]
+    if len(key_names_list) == 1:
+        summary = f"The track is in {key_names_list[0]}."
+        mood = list(song_keys.values())[0].mood
+        if mood:
+            summary += f" Mood: {mood}."
+    elif comparisons:
+        close = sum(1 for c in comparisons if c.distance <= 1)
+        total = len(comparisons)
+        summary = f"Keys detected: {', '.join(key_names_list)}. "
+        if close == total:
+            summary += "All songs are in closely related keys."
+        elif close > 0:
+            summary += f"{close}/{total} pairs are closely related."
+        else:
+            summary += "The songs span distant keys, creating harmonic variety."
+    else:
+        summary = f"Keys detected: {', '.join(key_names_list)}."
+
+    return KeyAnalysis(
+        song_keys=song_keys,
+        pairwise_key_comparisons=comparisons,
+        summary=summary,
+    )
 
 
 @router.post("/analyze", response_model=ClusterAnalyzeResponse)
@@ -206,6 +298,7 @@ async def analyze_cluster(
 
         # Vibe description from aggregate region scores
         vibe = describe_vibe(combined.region_scores)
+        emotional_profile = map_region_scores_to_emotions(combined.region_scores)
 
         # Pairwise similarities (only when 2–20 songs; skip for large batches)
         pairwise: list[PairwiseSimilarity] = []
@@ -222,6 +315,13 @@ async def analyze_cluster(
                             components=components,
                         )
                     )
+
+        # Key analysis (non-blocking — failures are tolerated)
+        key_analysis: KeyAnalysis | None = None
+        try:
+            key_analysis = await _build_key_analysis(songs)
+        except Exception:
+            logger.warning("Key analysis failed, continuing without it")
 
         n = len(songs)
         summary = f"Analyzed {n} song{'s' if n > 1 else ''}"
@@ -242,6 +342,7 @@ async def analyze_cluster(
             "vibe_description": vibe,
             "pairwise_similarities": [p.model_dump() for p in pairwise],
             "summary": summary,
+            "key_analysis": key_analysis.model_dump() if key_analysis else None,
         }
         saved = False
         try:
@@ -268,8 +369,10 @@ async def analyze_cluster(
             peak_segment=combined.peak_index,
             vibe_description=vibe,
             pairwise_similarities=pairwise,
+            key_analysis=key_analysis,
             summary=summary,
             saved=bool(saved),
+            emotional_profile=emotional_profile,
         )
 
     finally:
@@ -456,6 +559,7 @@ async def analyze_cluster_stream(
             temporal_resampled = resample_sequence(combined.temporal_fingerprints)
             temporal_b64 = encode_temporal_b64(temporal_resampled)
             vibe = describe_vibe(combined.region_scores)
+            emotional_profile = map_region_scores_to_emotions(combined.region_scores)
 
             pairwise: list[PairwiseSimilarity] = []
             if 1 < len(songs) <= 20:
@@ -471,6 +575,13 @@ async def analyze_cluster_stream(
                                 components=components,
                             )
                         )
+
+            # Key analysis (non-blocking)
+            key_analysis: KeyAnalysis | None = None
+            try:
+                key_analysis = await _build_key_analysis(songs)
+            except Exception:
+                logger.warning("Key analysis failed in stream, continuing without it")
 
             n = len(songs)
             summary = f"Analyzed {n} song{'s' if n > 1 else ''}"
@@ -491,6 +602,7 @@ async def analyze_cluster_stream(
                 "vibe_description": vibe,
                 "pairwise_similarities": [p.model_dump() for p in pairwise],
                 "summary": summary,
+                "key_analysis": key_analysis.model_dump() if key_analysis else None,
             }
             saved = False
             try:
@@ -515,8 +627,10 @@ async def analyze_cluster_stream(
                 peak_segment=combined.peak_index,
                 vibe_description=vibe,
                 pairwise_similarities=pairwise,
+                key_analysis=key_analysis,
                 summary=summary,
                 saved=bool(saved),
+                emotional_profile=emotional_profile,
             )
 
             yield _sse_event("complete", response.model_dump())

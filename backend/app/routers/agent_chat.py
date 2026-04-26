@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from app.config import settings
 from app.models.schemas import RegionScores
+from app.services.emotions import map_region_scores_to_emotions
 from app.services.song_cache import find_similar_songs
 from app.utils.auth import require_auth
 
@@ -25,18 +26,33 @@ router = APIRouter(prefix="/agent", tags=["agent"])
 SYSTEM_PROMPT = """\
 You are Sera, an AI music consultant for artists and creators.
 
-You help creators understand how their music is perceived at a neural level \
-but you keep things simple, warm, and practical.
+You help creators understand how their music makes people *feel* — the \
+emotions, vibes, and psychological responses their music is predicted to evoke.
 
 When responding:
 - Skip introducing yourself or explaining what Sera is
 - Be VERY concise and professional, like a knowledgeable source
-- Translate brain-response insights into practical creative terms \
-  (e.g. "your track has a strong rhythmic anchor that keeps listeners grounded" \
-  rather than "high activation in the motor cortex")
-- When relevant, suggest production directions based on the neural profile
+- Talk about emotions and feelings, not brain regions. Use words like \
+  nostalgia, euphoria, chills, groove, tension, awe, immersion, anticipation
+- Translate brain-response data into emotional language \
+  (e.g. "your track evokes strong nostalgia and rhythmic groove" \
+  rather than "high activation in the superior temporal region")
+- Compare emotional profiles between songs when relevant \
+  (e.g. "both tracks trigger musical chills, but yours leans more into euphoria")
+- Suggest what emotional effect production choices create \
+  (e.g. "adding reverb depth could push the awe and immersion response higher")
+- When relevant, suggest production directions based on the emotional profile
+- When key information is available, weave it naturally into your response \
+  (e.g. "your track is in D minor, often associated with melancholy and introspection")
+- Mention key compatibility when comparing songs (e.g. "these tracks share closely \
+  related keys, which is why they feel harmonically connected")
 - Keep responses to 1-2 sentences unless the creator asks for more detail
 - Can compare the music to what you have
+
+You have access to predicted emotional profiles derived from a brain-encoding \
+model. These map brain region activations to emotions like nostalgia, groove, \
+musical chills, awe, euphoria, anticipation, and transcendence. Use these to \
+ground your advice in how listeners are predicted to *feel*.
 
 You use the TRIBE v2 cortical-encoding model under the hood, but you never \
 need to explain that unless the creator specifically asks how it works.
@@ -96,6 +112,65 @@ def _build_context(analysis: Any) -> str:
     peak = analysis.get("peak_segment")
     if peak is not None:
         parts.append(f"Peak activation segment: {peak}/29")
+
+    # Build emotional profile section from region scores
+    emo_profile = analysis.get("emotional_profile")
+    if not emo_profile and scores and isinstance(scores, dict):
+        try:
+            rs = RegionScores(**{k: v for k, v in scores.items() if isinstance(v, (int, float))})
+            emo_profile = map_region_scores_to_emotions(rs)
+        except Exception:
+            pass
+
+    if emo_profile and isinstance(emo_profile, dict):
+        parts.append("\n## Predicted Emotional Response")
+        dominant = emo_profile.get("dominant_emotions", [])
+        if dominant:
+            emo_labels = []
+            emotions_list = emo_profile.get("emotions", [])
+            for emo_name in dominant:
+                matching = [e for e in emotions_list if e.get("name") == emo_name]
+                if matching:
+                    level = matching[0].get("level", "")
+                    emo_labels.append(f"{emo_name} ({level})")
+                else:
+                    emo_labels.append(emo_name)
+            parts.append(f"Primary emotions: {', '.join(emo_labels)}")
+
+        emo_summary = emo_profile.get("summary", "")
+        if emo_summary:
+            parts.append(emo_summary)
+
+        # List top emotions with descriptions for richer context
+        emotions_list = emo_profile.get("emotions", [])
+        high_emotions = [e for e in emotions_list if e.get("level") == "high"]
+        if high_emotions:
+            parts.append("\nKey emotional dimensions:")
+            for emo in high_emotions[:4]:
+                parts.append(f"  - {emo['name']}: {emo.get('description', '')}")
+
+    # Key information
+    key_info = None
+    song_data = analysis.get("song")
+    if song_data and isinstance(song_data, dict):
+        key_info = song_data.get("key_info")
+    key_analysis = analysis.get("key_analysis")
+    if key_info and isinstance(key_info, dict) and key_info.get("key_name"):
+        parts.append(f"\nMusical Key: {key_info['key_name']}")
+        if key_info.get("tempo"):
+            parts.append(f"Tempo: {key_info['tempo']:.0f} BPM")
+        if key_info.get("mood"):
+            parts.append(f"Key mood association: {key_info['mood']}")
+    if key_analysis and isinstance(key_analysis, dict):
+        ka_summary = key_analysis.get("summary")
+        if ka_summary:
+            parts.append(f"\nKey Analysis: {ka_summary}")
+        comparisons = key_analysis.get("pairwise_key_comparisons", [])
+        if comparisons:
+            parts.append("\nKey Compatibility:")
+            for comp in comparisons[:5]:
+                if isinstance(comp, dict) and comp.get("description"):
+                    parts.append(f"  - {comp['description']}")
 
     return "\n".join(parts)
 

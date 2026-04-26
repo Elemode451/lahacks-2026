@@ -10,6 +10,32 @@ from pydantic import BaseModel, Field
 # ── Shared ──────────────────────────────────────────────────────────────────
 
 
+class KeyInfo(BaseModel):
+    """Musical key information derived from Spotify audio features."""
+    key: int | None = Field(None, description="Pitch class (0=C … 11=B). None if unavailable.")
+    mode: int | None = Field(None, description="0 = minor, 1 = major. None if unavailable.")
+    key_name: str = Field("", description="Human-readable key, e.g. 'D Minor'.")
+    tempo: float | None = Field(None, description="Estimated tempo in BPM.")
+    time_signature: int | None = Field(None, description="Estimated time signature (e.g. 4).")
+    mood: str = Field("", description="Mood/character association for this key.")
+
+
+class KeyComparison(BaseModel):
+    """Pairwise key-compatibility result between two songs."""
+    song_a: str = Field(..., description="song_id of the first song.")
+    song_b: str = Field(..., description="song_id of the second song.")
+    distance: int = Field(..., description="Circle of Fifths distance (0-6).")
+    relationship: str = Field(..., description="Relationship label.")
+    description: str = Field("", description="Human-readable comparison.")
+
+
+class KeyAnalysis(BaseModel):
+    """Aggregate key analysis for a set of songs."""
+    song_keys: dict[str, KeyInfo] = Field(default_factory=dict, description="Map of song_id → KeyInfo.")
+    pairwise_key_comparisons: list[KeyComparison] = Field(default=[], description="Pairwise key comparisons.")
+    summary: str = Field("", description="Short textual summary of key relationships.")
+
+
 class SongInfo(BaseModel):
     song_id: str
     spotify_id: str | None = None
@@ -17,6 +43,7 @@ class SongInfo(BaseModel):
     artist: str
     album_art_url: str | None = None
     preview_url: str | None = None
+    key_info: KeyInfo | None = Field(None, description="Musical key information (if available).")
 
 
 class RegionScores(BaseModel):
@@ -77,6 +104,13 @@ class CreatorAnalyzeResponse(BaseModel):
     combined_region_scores: RegionScores = Field(default_factory=RegionScores)
     combined_timeline: list[dict[str, float]] = []
     vibe_description: str = ""
+    emotional_profile: dict | None = Field(
+        default=None,
+        description=(
+            "Predicted emotional response derived from brain region activations. "
+            "Contains emotion labels with intensities, dominant emotions, and a natural-language summary."
+        ),
+    )
 
 
 # ── Listener / Cluster Mode ────────────────────────────────────────────────
@@ -286,9 +320,20 @@ class ClusterAnalyzeResponse(BaseModel):
         default="",
         description="Short text summary of the analysis results.",
     )
+    key_analysis: KeyAnalysis | None = Field(
+        default=None,
+        description="Musical key information for each song and pairwise compatibility.",
+    )
     saved: bool = Field(
         default=False,
         description="Whether this analysis was persisted to the database.",
+    )
+    emotional_profile: dict | None = Field(
+        default=None,
+        description=(
+            "Predicted emotional response derived from brain region activations. "
+            "Contains emotion labels with intensities, dominant emotions, and a natural-language summary."
+        ),
     )
 
 

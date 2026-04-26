@@ -426,8 +426,8 @@ def aggregate_fingerprints(
     region_fields = ["auditory", "superior_temporal", "temporo_parietal",
                      "inferior_frontal", "multisensory", "whole_cortex"]
     avg_scores: dict[str, float] = {}
-    for field in region_fields:
-        avg_scores[field] = float(np.mean([getattr(fp.region_scores, field) for fp in fps]))
+    for region_name in region_fields:
+        avg_scores[region_name] = float(np.mean([getattr(fp.region_scores, region_name) for fp in fps]))
     region_scores = RegionScores(**avg_scores)
 
     # Timeline: average region scores across songs, resample to 30 segments
@@ -537,7 +537,13 @@ _REGION_DESCRIPTIONS: dict[str, dict[str, str]] = {
 
 
 def describe_vibe(region_scores: RegionScores) -> str:
-    """Generate a human-readable vibe description from region activation scores."""
+    """Generate a human-readable vibe description from region activation scores.
+
+    Uses the emotion mapping module for richer, more specific descriptions
+    that reference predicted emotional responses alongside brain region data.
+    """
+    from app.services.emotions import map_region_scores_to_emotions
+
     scores = region_scores.model_dump()
     del scores["whole_cortex"]
 
@@ -575,5 +581,12 @@ def describe_vibe(region_scores: RegionScores) -> str:
     if len(descriptions) > 1:
         vibe += f", paired with {descriptions[1]}"
     vibe += "."
+
+    # Enrich with emotional context from the emotion mapping
+    emotional = map_region_scores_to_emotions(region_scores)
+    dominant = emotional.get("dominant_emotions", [])
+    if dominant:
+        emo_list = ", ".join(e.lower() for e in dominant[:3])
+        vibe += f" Predicted emotional response: {emo_list}."
 
     return vibe
