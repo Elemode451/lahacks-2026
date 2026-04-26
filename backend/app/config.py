@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     tribe_worker_url: str = "http://localhost:8001"
     use_mock_tribe: bool = True  # Use mock responses until TRIBE worker is ready
 
+    # ASI:One agent
+    asi1_api_key: str = ""
+
     # App
     app_name: str = "SeraTune"
     debug: bool = True
