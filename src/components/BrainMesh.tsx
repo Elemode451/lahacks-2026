@@ -20,7 +20,7 @@ function useRealBrainGeometry() {
         const geo = new THREE.BufferGeometry();
 
         const positions = new Float32Array(data.positions);
-        const colors = new Float32Array(data.colors);
+        const colors = new Float32Array(data.colors.flat());
         const indices = new Uint32Array(data.indices);
 
         geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));

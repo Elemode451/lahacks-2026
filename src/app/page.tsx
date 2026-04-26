@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { X, Send } from "lucide-react";
 import {
@@ -23,6 +23,7 @@ type ViewState = "intro" | "importing" | "analysis";
 type ImportType = "file" | "spotify" | "youtube";
 
 const panelEase = [0.16, 1, 0.3, 1] as const;
+const TOPBAR_H = 93;
 
 export default function Home() {
   const [viewState, setViewState] = useState<ViewState>("intro");
@@ -31,19 +32,40 @@ export default function Home() {
   const [inputValue, setInputValue] = useState("");
   const [brainFlashing, setBrainFlashing] = useState(false);
   const colorBendsRef = useRef<ColorBendsHandle>(null);
-  const [viewportScale, setViewportScale] = useState(1);
-
-  const updateScale = useCallback(() => {
-    const sw = window.innerWidth / 1280;
-    const sh = window.innerHeight / 832;
-    setViewportScale(Math.min(sw, sh, 1));
-  }, []);
+  const [vw, setVw] = useState(1280);
+  const [vh, setVh] = useState(832);
 
   useEffect(() => {
-    updateScale();
-    window.addEventListener("resize", updateScale);
-    return () => window.removeEventListener("resize", updateScale);
-  }, [updateScale]);
+    const update = () => {
+      setVw(window.innerWidth);
+      setVh(window.innerHeight);
+    };
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+
+  const layout = useMemo(() => {
+    const contentH = vh - TOPBAR_H;
+    const brainSize = Math.min(contentH * 0.95, vw * 0.55);
+    return {
+      brainW: brainSize,
+      brainH: brainSize,
+      brainIntroX: vw * 0.5 - brainSize * 0.5,
+      brainAnalysisX: 0,
+      brainTop: TOPBAR_H + (contentH - brainSize) / 2,
+      pillW: 140,
+      pillH: 50,
+      pillX: vw * 0.7,
+      pillY: TOPBAR_H / 2 - 25,
+      panelW: Math.min(vw * 0.72, 920),
+      panelH: Math.min(contentH * 0.88, 650),
+      panelX: (vw - Math.min(vw * 0.72, 920)) / 2,
+      panelY: TOPBAR_H + (contentH - Math.min(contentH * 0.88, 650)) / 2,
+      rightPanelW: vw * 0.5,
+      logoLeft: vw * 0.14,
+    };
+  }, [vw, vh]);
 
   const handleAddSong = (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -66,13 +88,9 @@ export default function Home() {
   };
 
   return (
-    <div className="w-screen h-screen overflow-hidden bg-[#fffdf5] flex items-center justify-center">
-    <div
-      className="relative w-[1280px] h-[832px] overflow-hidden bg-[#fffdf5] font-sans selection:bg-[#f95738] selection:text-white flex-shrink-0"
-      style={{ transform: `scale(${viewportScale})`, transformOrigin: "center center" }}
-    >
-      {/* Color Bends Background — replaces the static figma image */}
-      <div className="absolute left-[-617px] top-[-93px] w-[1920px] h-[1080px] pointer-events-none">
+    <div className="relative w-screen h-screen overflow-hidden bg-[#fffdf5] font-sans selection:bg-[#f95738] selection:text-white">
+      {/* Color Bends Background */}
+      <div className="absolute inset-0 pointer-events-none" style={{ top: TOPBAR_H }}>
         <div className="absolute inset-0 opacity-75">
           <ColorBends
             ref={colorBendsRef}
@@ -94,18 +112,20 @@ export default function Home() {
 
       {/* Topbar Background — slides up on analysis */}
       <motion.div
-        className="absolute bg-[#fffdf5] h-[93px] left-0 top-0 w-[1280px] z-0"
+        className="absolute bg-[#fffdf5] left-0 top-0 w-full z-0"
+        style={{ height: TOPBAR_H }}
         initial={false}
-        animate={{ y: viewState === "analysis" ? -93 : 0 }}
+        animate={{ y: viewState === "analysis" ? -TOPBAR_H : 0 }}
         transition={{ duration: 0.8, ease: panelEase }}
       />
 
       {/* 3D Brain — slides left on analysis */}
       <motion.div
-        className={`absolute w-[662px] h-[738px] top-[103px] pointer-events-none z-10 ${brainFlashing ? "brain-flash" : ""}`}
+        className={`absolute pointer-events-none z-10 ${brainFlashing ? "brain-flash" : ""}`}
+        style={{ width: layout.brainW, height: layout.brainH, top: layout.brainTop }}
         initial={false}
         animate={{
-          x: viewState === "analysis" ? -11 : 309,
+          x: viewState === "analysis" ? layout.brainAnalysisX : layout.brainIntroX,
         }}
         transition={{ duration: 0.8, ease: panelEase }}
       >
@@ -119,46 +139,49 @@ export default function Home() {
 
       {/* Logo Group — clickable, returns to intro */}
       <div
-        className="absolute left-[182px] top-[52px] z-20 flex items-center gap-[16px] cursor-pointer transition-opacity hover:opacity-80"
-        onClick={() => setViewState("intro")}
+        className="absolute top-0 z-20 flex items-center gap-4 cursor-pointer transition-opacity hover:opacity-80"
+        style={{ left: layout.logoLeft, height: TOPBAR_H }}
       >
         <div className="flex">
-          <div className="bg-[#f4d35e] h-[24px] w-[3px]" />
-          <div className="bg-[#ee964b] h-[24px] w-[3px]" />
-          <div className="bg-[#f95738] h-[24px] w-[3px]" />
+          <div className="bg-[#f4d35e] h-6 w-[3px]" />
+          <div className="bg-[#ee964b] h-6 w-[3px]" />
+          <div className="bg-[#f95738] h-6 w-[3px]" />
         </div>
-        <SeratuneLogo className="h-[40.576px] w-[242.147px]" />
+        <SeratuneLogo
+          className="h-[40px] w-auto cursor-pointer"
+          onClick={() => setViewState("intro")}
+        />
       </div>
 
       {/* Right Section (Analysis View) — slides in from right */}
       <motion.div
-        className="absolute bg-[#fffdf5] h-[832px] top-0 w-[640px] z-10"
+        className="absolute bg-[#fffdf5] top-0 z-10"
+        style={{ width: layout.rightPanelW, height: vh }}
         initial={false}
         animate={{
-          x: viewState === "analysis" ? 640 : 1280,
+          x: viewState === "analysis" ? vw - layout.rightPanelW : vw,
         }}
         transition={{ duration: 0.8, ease: panelEase }}
       >
         <AnimatePresence>
           {viewState === "analysis" && (
             <motion.div
-              className="absolute inset-0"
+              className="absolute inset-0 p-12"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.6, delay: 0.4 }}
             >
-              <div className="absolute left-[132px] size-[408px] top-[53px]">
+              <div className="relative w-full max-w-[408px] mx-auto" style={{ aspectRatio: "1/1" }}>
                 <SpiderChartSvg className="absolute block inset-0 size-full" />
-                <p className="absolute -left-[50px] top-[140px] text-[#0d3b66] text-[14px]">danceability</p>
-                <p className="absolute left-[100px] bottom-[-20px] text-[#0d3b66] text-[14px]">energy</p>
-                <p className="absolute right-[100px] bottom-[-20px] text-[#0d3b66] text-[14px]">valence</p>
-                <p className="absolute -right-[20px] top-[140px] text-[#0d3b66] text-[14px]">tempo</p>
+                <p className="absolute -left-[50px] top-[35%] text-[#0d3b66] text-sm">danceability</p>
+                <p className="absolute left-[25%] bottom-[-20px] text-[#0d3b66] text-sm">energy</p>
+                <p className="absolute right-[25%] bottom-[-20px] text-[#0d3b66] text-sm">valence</p>
+                <p className="absolute -right-[20px] top-[35%] text-[#0d3b66] text-sm">tempo</p>
               </div>
-              <p className="absolute font-normal h-[252px] leading-[normal] left-[59px] text-[#0d3b66] text-[14px] top-[540px] tracking-[-0.56px] w-[336px] whitespace-pre-wrap">
+              <p className="mt-12 text-[#0d3b66] text-sm tracking-[-0.56px] max-w-sm whitespace-pre-wrap">
                 overview:
-                <br />
-                <br />
+                {"\n\n"}
                 This music fits a limbic-dominant profile with strong auditory cortex engagement. High introspective alignment suggests deep default-mode network resonance characteristic of emotional processing music.
               </p>
             </motion.div>
@@ -181,10 +204,10 @@ export default function Home() {
             className="absolute bg-[rgba(249,87,56,0.15)] overflow-hidden z-20 shadow-sm backdrop-blur-[24px]"
             initial={false}
             animate={{
-              width: viewState === "intro" ? 140 : 918,
-              height: viewState === "intro" ? 50 : 650,
-              x: viewState === "intro" ? 901 : 181,
-              y: viewState === "intro" ? 75 : 137,
+              width: viewState === "intro" ? layout.pillW : layout.panelW,
+              height: viewState === "intro" ? layout.pillH : layout.panelH,
+              x: viewState === "intro" ? layout.pillX : layout.panelX,
+              y: viewState === "intro" ? layout.pillY : layout.panelY,
               borderRadius: viewState === "intro" ? 100 : 40,
               opacity: 1,
               scale: 1,
@@ -210,35 +233,35 @@ export default function Home() {
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0, transition: { duration: 0.1 } }}
               >
-                <span className="font-medium text-[20px] tracking-[-0.8px]">import</span>
-                <SoundBarsIcon className="size-[24px]" />
+                <span className="font-medium text-xl tracking-[-0.8px]">import</span>
+                <SoundBarsIcon className="size-6" />
               </motion.button>
             ) : (
               <motion.div
                 className="absolute flex flex-col"
-                style={{ top: 40, left: 52, right: 52, bottom: 32 }}
+                style={{ top: 44, left: 56, right: 56, bottom: 36 }}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.2, duration: 0.3 }}
               >
                 {/* Header: "import:" left, icon tabs right */}
-                <div className="flex justify-between items-start mb-5">
-                  <h2 className="font-medium text-[#f95738] text-[24px] tracking-[-0.96px]">import:</h2>
-                  <div className="flex gap-6 mt-1 text-[#f95738] items-center">
+                <div className="flex justify-between items-center mb-8">
+                  <h2 className="font-medium text-[#f95738] text-2xl tracking-[-0.96px]">import:</h2>
+                  <div className="flex gap-8 text-[#f95738] items-center">
                     <button
-                      className={`transition-all duration-200 cursor-pointer ${importType === "file" ? "opacity-100 scale-110" : "opacity-50 hover:opacity-80"}`}
+                      className={`transition-all duration-200 cursor-pointer p-1 ${importType === "file" ? "opacity-100 scale-110" : "opacity-50 hover:opacity-80"}`}
                       onClick={() => setImportType("file")}
                     >
                       <FileIcon className="w-[26px] h-[30px]" />
                     </button>
                     <button
-                      className={`transition-all duration-200 cursor-pointer ${importType === "spotify" ? "opacity-100 scale-110" : "opacity-50 hover:opacity-80"}`}
+                      className={`transition-all duration-200 cursor-pointer p-1 ${importType === "spotify" ? "opacity-100 scale-110" : "opacity-50 hover:opacity-80"}`}
                       onClick={() => setImportType("spotify")}
                     >
                       <SpotifyIcon className="w-[30px] h-[30px]" />
                     </button>
                     <button
-                      className={`transition-all duration-200 cursor-pointer ${importType === "youtube" ? "opacity-100 scale-110" : "opacity-50 hover:opacity-80"}`}
+                      className={`transition-all duration-200 cursor-pointer p-1 ${importType === "youtube" ? "opacity-100 scale-110" : "opacity-50 hover:opacity-80"}`}
                       onClick={() => setImportType("youtube")}
                     >
                       <YouTubeIcon className="w-[34px] h-[24px]" />
@@ -259,9 +282,9 @@ export default function Home() {
                         className="relative z-10 w-full flex-1 p-8 flex flex-col items-center justify-center text-[#f95738]"
                       >
                         <div className="absolute inset-0 rounded-[30px] border-4 border-[#f95738] border-dashed pointer-events-none opacity-50" />
-                        <UploadIcon className="size-[40px] mb-3" />
+                        <UploadIcon className="size-10 mb-4" />
                         <p className="text-base font-medium tracking-tight">Drag and drop files here</p>
-                        <p className="text-sm mt-1">or click to browse</p>
+                        <p className="text-sm mt-2">or click to browse</p>
                       </motion.div>
                     ) : (
                       <motion.div
@@ -283,13 +306,13 @@ export default function Home() {
                                   ? "Paste Spotify track/playlist link..."
                                   : "Paste YouTube video URL..."
                               }
-                              className="w-full bg-[rgba(249,87,56,0.1)] border-2 border-[rgba(249,87,56,0.3)] focus:border-[#f95738] rounded-full py-2.5 px-5 text-[#f95738] placeholder-[#f95738] outline-none text-base transition-colors"
+                              className="w-full bg-[rgba(249,87,56,0.1)] border-2 border-[rgba(249,87,56,0.3)] focus:border-[#f95738] rounded-full py-3 px-6 text-[#f95738] placeholder-[#f95738] outline-none text-base transition-colors"
                             />
                             <button
                               type="submit"
-                              className="absolute right-2 bg-[#f95738] text-white w-8 h-8 rounded-full hover:bg-[#d84b31] transition-colors flex items-center justify-center"
+                              className="absolute right-2.5 bg-[#f95738] text-white w-9 h-9 rounded-full hover:bg-[#d84b31] transition-colors flex items-center justify-center"
                             >
-                              <Send className="size-[16px] text-white relative right-[1px] top-[1px]" />
+                              <Send className="size-4 text-white relative right-px top-px" />
                             </button>
                           </div>
                         </form>
@@ -304,27 +327,27 @@ export default function Home() {
                                   className="h-full flex flex-col items-center justify-center text-[#f95738]"
                                 >
                                   <p className="text-base font-medium tracking-tight">List is empty</p>
-                                  <p className="text-sm mt-1 text-center max-w-xs">
+                                  <p className="text-sm mt-2 text-center max-w-xs">
                                     {importType === "spotify" && "Add Spotify links to begin analysis"}
                                     {importType === "youtube" && "Add YouTube video links to begin analysis"}
                                   </p>
                                 </motion.div>
                               ) : (
-                                <div className="flex flex-col gap-2">
+                                <div className="flex flex-col gap-3">
                                   {songs.map((song, idx) => (
                                     <motion.div
                                       key={`${song}-${idx}`}
                                       initial={{ opacity: 0, y: 10 }}
                                       animate={{ opacity: 1, y: 0 }}
                                       exit={{ opacity: 0, scale: 0.95 }}
-                                      className="bg-[rgba(249,87,56,0.15)] rounded-xl py-2.5 px-5 flex items-center justify-between group w-full"
+                                      className="bg-[rgba(249,87,56,0.15)] rounded-xl py-3 px-5 flex items-center justify-between group w-full"
                                     >
                                       <span className="text-[#f95738] font-medium truncate pr-4 text-base">
                                         {song}
                                       </span>
                                       <button
                                         onClick={() => handleRemoveSong(idx)}
-                                        className="text-[#f95738] hover:text-[#d84b31] transition-colors p-1 -mr-1"
+                                        className="text-[#f95738] hover:text-[#d84b31] transition-colors p-1.5 -mr-1"
                                       >
                                         <X className="size-4" />
                                       </button>
@@ -341,13 +364,13 @@ export default function Home() {
                 </div>
 
                 {/* Bottom: song count + analyze button */}
-                <div className="mt-4 flex justify-between items-center shrink-0">
+                <div className="mt-6 flex justify-between items-center shrink-0">
                   <div className="text-[#f95738] font-medium text-lg tracking-tight">
                     {songs.length} {songs.length === 1 ? "song" : "songs"} added
                   </div>
                   <button
                     onClick={handleAnalyze}
-                    className="bg-[rgba(249,87,56,0.2)] hover:bg-[rgba(249,87,56,0.3)] transition-colors text-[#f95738] font-medium text-[20px] tracking-[-0.8px] py-[6px] px-[28px] rounded-[50px] shadow-sm backdrop-blur-[16px] cursor-pointer"
+                    className="bg-[rgba(249,87,56,0.2)] hover:bg-[rgba(249,87,56,0.3)] transition-colors text-[#f95738] font-medium text-xl tracking-[-0.8px] py-2 px-8 rounded-full shadow-sm backdrop-blur-[16px] cursor-pointer"
                   >
                     analyze
                   </button>
@@ -374,7 +397,6 @@ export default function Home() {
           background: rgba(249,87,56,0.5);
         }
       `}</style>
-    </div>
     </div>
   );
 }

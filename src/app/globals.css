@@ -17,6 +17,7 @@
   --color-heatmap-hot: var(--heatmap-hot);
   --color-heatmap-mid: var(--heatmap-mid);
   --color-heatmap-low: var(--heatmap-low);
+  --font-sans: 'Switzer', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-body: var(--font-body);
 }
 
