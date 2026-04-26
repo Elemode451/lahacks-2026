@@ -128,43 +128,47 @@ async def analyze_creator_track(
             f"Peak activation occurs at segment {peak_seg}. {vibe}"
         )
 
-        # Compute lookup key early so we can exclude the uploaded file from its own results
+        # Compute lookup key early so we can exclude ourselves from similar songs
         lookup_key = _upload_lookup_key(audio.filename or "upload.wav", file_bytes)
 
-        # Find top matches from the catalog by cosine similarity on region scores
-        similar_results, _ = await asyncio.to_thread(
-            find_similar_songs,
-            target_scores=song_fp.region_scores,
-            exclude_keys={lookup_key},
-            n=5,
-        )
-        # For matching_regions, compare by rank: find top regions for both
-        # the target and each match, then intersect
-        target_scores_dict = song_fp.region_scores.model_dump()
-        _REGIONS = ["auditory", "superior_temporal", "temporo_parietal",
-                    "inferior_frontal", "multisensory", "whole_cortex"]
-        target_top = sorted(_REGIONS, key=lambda r: target_scores_dict.get(r, 0.0), reverse=True)[:3]
-
-        top_matches = [
-            SongMatch(
-                song=SongInfo(
-                    song_id=r["lookup_key"],
-                    title=r["title"],
-                    artist=r["artist"],
-                ),
-                similarity_score=r["similarity"],
-                matching_regions=[
-                    region for region in sorted(
-                        _REGIONS,
-                        key=lambda reg: float(r.get("region_scores", {}).get(reg, 0.0)),
-                        reverse=True,
-                    )[:3]
-                    if region in target_top
-                ],
-                source="brain_similarity",
+        # Find similar songs from the catalog by cosine similarity on region scores
+        try:
+            similar_results, _ = await asyncio.to_thread(
+                find_similar_songs,
+                target_scores=song_fp.region_scores,
+                exclude_keys={lookup_key},
+                n=10,
             )
-            for r in similar_results
-        ]
+            # For matching_regions, compare by rank: find top regions for both
+            # the target and each match, then intersect
+            target_scores_dict = song_fp.region_scores.model_dump()
+            _REGIONS = ["auditory", "superior_temporal", "temporo_parietal",
+                        "inferior_frontal", "multisensory", "whole_cortex"]
+            target_top = sorted(_REGIONS, key=lambda r: target_scores_dict.get(r, 0.0), reverse=True)[:3]
+
+            top_matches = [
+                SongMatch(
+                    song=SongInfo(
+                        song_id=r["lookup_key"],
+                        title=r["title"],
+                        artist=r["artist"],
+                    ),
+                    similarity_score=r["similarity"],
+                    matching_regions=[
+                        region for region in sorted(
+                            _REGIONS,
+                            key=lambda reg: float(r.get("region_scores", {}).get(reg, 0.0)),
+                            reverse=True,
+                        )[:3]
+                        if region in target_top
+                    ],
+                    source="brain_similarity",
+                )
+                for r in similar_results
+            ]
+        except Exception:
+            logger.warning("Failed to find similar songs for creator upload")
+            top_matches = []
 
         result = CreatorAnalyzeResponse(
             analysis_id=analysis_id,
@@ -213,6 +217,7 @@ async def analyze_creator_track(
             "summary": summary,
             "song_cache_keys": [lookup_key],
             "vibe_description": vibe,
+            "emotional_profile": emotional_profile,
         }
         await asyncio.to_thread(
             save_analysis,

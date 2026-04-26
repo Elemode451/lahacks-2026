@@ -58,7 +58,7 @@ export default function SongRecommendations({
       onRequestCollaborative();
     }
 
-    // Advance to next song or refresh if at the end
+    // Advance to next song or reset and refresh if at the end
     if (safeIndex < recommendations.length - 1) {
       setCurrentIndex(safeIndex + 1);
     } else {

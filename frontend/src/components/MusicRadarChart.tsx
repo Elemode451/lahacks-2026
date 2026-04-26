@@ -32,6 +32,14 @@ const defaultData: RadarDataPoint[] = [
   { attribute: "speechiness",  value: 28 },
 ];
 
+const REGION_MOOD_MAP: Record<string, string> = {
+  "Auditory": "groove · chills",
+  "Sup. Temporal": "nostalgia · melody",
+  "Temp.-Parietal": "awe · immersion",
+  "Inf. Frontal": "tension · surprise",
+  "Multisensory": "euphoria · synesthesia",
+};
+
 export default function MusicRadarChart({
   data = defaultData,
   color = "#f95738",
@@ -43,24 +51,47 @@ export default function MusicRadarChart({
   return (
     <div className={`[&_.recharts-surface]:outline-none [&_.recharts-wrapper]:outline-none ${className ?? ""}`} style={style}>
       <ResponsiveContainer width="100%" height="100%">
-        <RadarChart data={data} margin={{ top: 16, right: 40, bottom: 16, left: 40 }}>
+        <RadarChart data={data} margin={{ top: 20, right: 50, bottom: 20, left: 50 }}>
           <PolarGrid gridType="polygon" stroke="rgba(13,59,102,0.12)" />
           <PolarAngleAxis
             dataKey="attribute"
-            tick={(props: { x: string | number; y: string | number; payload: { value: string }; textAnchor: string }) => (
-              <text
-                x={Number(props.x)}
-                y={Number(props.y)}
-                textAnchor={props.textAnchor as "inherit" | "end" | "start" | "middle"}
-                fill="rgba(13,59,102,0.5)"
-                fontSize={9}
-                fontWeight={600}
-                letterSpacing="0.09em"
-                dominantBaseline="middle"
-              >
-                {props.payload.value.toUpperCase()}
-              </text>
-            )}
+            tick={(props: { x: string | number; y: string | number; payload: { value: string }; textAnchor: string }) => {
+              const label = props.payload.value;
+              const mood = REGION_MOOD_MAP[label];
+              const anchor = props.textAnchor as "inherit" | "end" | "start" | "middle";
+              const nx = Number(props.x);
+              const ny = Number(props.y);
+              return (
+                <g>
+                  <text
+                    x={nx}
+                    y={ny}
+                    textAnchor={anchor}
+                    fill="rgba(13,59,102,0.5)"
+                    fontSize={9}
+                    fontWeight={600}
+                    letterSpacing="0.09em"
+                    dominantBaseline="middle"
+                  >
+                    {label.toUpperCase()}
+                  </text>
+                  {mood && (
+                    <text
+                      x={nx}
+                      y={ny + 11}
+                      textAnchor={anchor}
+                      fill="rgba(249,87,56,0.45)"
+                      fontSize={7.5}
+                      fontWeight={500}
+                      letterSpacing="0.04em"
+                      dominantBaseline="middle"
+                    >
+                      {mood}
+                    </text>
+                  )}
+                </g>
+              );
+            }}
           />
           <Radar
             dataKey="value"

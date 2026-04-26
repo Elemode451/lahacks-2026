@@ -12,7 +12,7 @@ from slowapi.errors import RateLimitExceeded
 from app.rate_limit import limiter
 
 from app.config import settings
-from app.routers import agent_chat, analyses, auth, clusters, creator, recommend, spotify_router
+from app.routers import agent_chat, analyses, auth, clusters, creator, friends, recommend, spotify_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -75,6 +75,7 @@ app.include_router(creator.router)
 app.include_router(clusters.router)
 app.include_router(analyses.router)
 app.include_router(recommend.router)
+app.include_router(friends.router)
 app.include_router(agent_chat.router)
 
 
