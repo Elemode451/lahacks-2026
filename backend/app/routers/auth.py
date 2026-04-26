@@ -9,14 +9,12 @@ import logging
 import secrets
 import time
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import httpx
-from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from supabase import create_client
-
-from app.rate_limit import limiter
 
 from app.config import settings
 from app.models.schemas import (
@@ -24,9 +22,11 @@ from app.models.schemas import (
     LoginRequest,
     OAuthStartResponse,
     SignUpRequest,
+    SpotifyRefreshRequest,
     SpotifyTokenData,
     SyncProfileResponse,
 )
+from app.rate_limit import limiter
 from app.services.supabase_client import get_supabase_admin
 from app.utils.auth import require_auth
 
@@ -40,10 +40,7 @@ def _ephemeral_client():
     This avoids mutating session state on the shared singleton,
     which would cause cross-user contamination in a concurrent server.
     """
-    if not settings.supabase_url or not settings.supabase_key:
-        raise HTTPException(503, "Authentication service not configured")
     return create_client(settings.supabase_url, settings.supabase_key)
-
 
 
 @router.post("/signup", response_model=AuthResponse)
@@ -65,16 +62,11 @@ async def signup(request: Request, req: SignUpRequest):
         if user is None:
             raise HTTPException(400, "Signup failed")
 
-        # Store display name in profiles table (admin client bypasses RLS).
-        # The DB trigger on_auth_user_created also creates a profile row,
-        # so this upsert may race or fail on FK timing — treat as non-fatal.
+        # Store display name in profiles table (admin client bypasses RLS)
         if req.display_name:
-            try:
-                get_supabase_admin().table("profiles").upsert(
-                    {"user_id": user.id, "display_name": req.display_name}
-                ).execute()
-            except Exception:
-                logger.warning("Profile upsert failed for %s (trigger may handle it)", user.id)
+            get_supabase_admin().table("profiles").upsert(
+                {"user_id": user.id, "display_name": req.display_name}
+            ).execute()
 
         return AuthResponse(
             access_token=result.session.access_token if result.session else "",
@@ -134,10 +126,7 @@ async def sync_profile(user_id: str = Depends(require_auth)):
     to populate the profiles table with the user's provider display name.
     If a display_name already exists it is preserved.
     """
-    try:
-        sb = get_supabase_admin()
-    except Exception:
-        raise HTTPException(503, "Service unavailable")
+    sb = get_supabase_admin()
 
     # Check if a display name already exists
     existing = (
@@ -233,8 +222,18 @@ async def spotify_oauth_start() -> OAuthStartResponse:
 
 
 @router.get("/spotify/callback")
-async def spotify_oauth_callback(code: str, state: str) -> RedirectResponse:
+async def spotify_oauth_callback(
+    state: str,
+    code: str | None = None,
+    error: str | None = None,
+) -> RedirectResponse:
     """Handle the Spotify OAuth redirect: exchange code, upsert user, redirect."""
+    if error or not code:
+        safe_error = quote(error or "access_denied")
+        return RedirectResponse(
+            url=f"{settings.frontend_url}/auth/callback"
+            f"?error={safe_error}&provider=spotify"
+        )
     if not _verify_state(state):
         raise HTTPException(400, "Invalid or expired OAuth state")
     try:
@@ -289,24 +288,23 @@ async def spotify_oauth_callback(code: str, state: str) -> RedirectResponse:
         )
 
         # 4. Store Spotify tokens
-        if user_id:
-            expires_in = token_data.get("expires_in", 3600)
-            expires_at = (
-                datetime.now(timezone.utc) + timedelta(seconds=expires_in)
-            ).isoformat()
-            sb.table("spotify_tokens").upsert(
-                {
-                    "user_id": user_id,
-                    "access_token": access_token,
-                    "refresh_token": refresh_token,
-                    "expires_at": expires_at,
-                    "scope": token_data.get("scope", ""),
-                    "spotify_user_id": spotify_user_id,
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
-                }
-            ).execute()
+        expires_in = token_data.get("expires_in", 3600)
+        expires_at = (
+            datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+        ).isoformat()
+        sb.table("spotify_tokens").upsert(
+            {
+                "user_id": user_id,
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "expires_at": expires_at,
+                "scope": token_data.get("scope", ""),
+                "spotify_user_id": spotify_user_id,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        ).execute()
 
-        # 5. Redirect to frontend with the Supabase access token (fragment to avoid leaking in logs/referrer)
+        # 5. Redirect to frontend with the Supabase access token
         redirect_url = (
             f"{settings.frontend_url}/auth/callback"
             f"#access_token={supabase_token}&provider=spotify"
@@ -325,11 +323,14 @@ async def _upsert_spotify_user(
 ) -> tuple[str, str]:
     """Find or create a Supabase user for the given Spotify account.
 
-    Returns (supabase_access_token, user_id).
-    """
-    user_id: str
+    Returns ``(supabase_access_token, user_id)``.
 
-    # Try to create the user first; if they already exist Supabase raises an error
+    Strategy: try to create first; if the email already exists, catch the
+    error and update instead.  This avoids querying ``auth.users`` via
+    PostgREST (which lives in the ``auth`` schema, not ``public``).
+    """
+    user_id: str | None = None
+
     try:
         random_password = secrets.token_urlsafe(32)
         result = sb.auth.admin.create_user(
@@ -347,32 +348,40 @@ async def _upsert_spotify_user(
         if result.user is None:
             raise HTTPException(500, "Failed to create user account")
         user_id = result.user.id
-
-        # Store display name in profiles table for new users
-        if display_name:
-            sb.table("profiles").upsert(
-                {"user_id": user_id, "display_name": display_name}
-            ).execute()
+        is_new_user = True
     except HTTPException:
         raise
-    except Exception:
-        # User already exists — generate_link returns the user object without pagination
-        link_for_lookup = sb.auth.admin.generate_link({"type": "magiclink", "email": email})
-        if hasattr(link_for_lookup, "user") and link_for_lookup.user:
-            user_id = link_for_lookup.user.id
-            sb.auth.admin.update_user_by_id(
-                user_id,
-                {
-                    "user_metadata": {
-                        "spotify_user_id": spotify_user_id,
-                        "provider": "spotify",
-                    }
-                },
-            )
-        else:
-            raise HTTPException(500, "Failed to find or create user account")
+    except Exception as exc:
+        exc_msg = str(exc).lower()
+        if "already" not in exc_msg and "duplicate" not in exc_msg:
+            logger.exception("Unexpected error creating Supabase user")
+            raise HTTPException(500, "Failed to create user account")
+        # User already exists — look up via admin API and update metadata
+        logger.info("User %s already exists, linking Spotify account", email)
+        existing = _find_user_by_email(sb, email)
+        if existing is None:
+            raise HTTPException(500, "Failed to locate existing user account")
+        user_id = existing.id
+        is_new_user = False
+        sb.auth.admin.update_user_by_id(
+            user_id,
+            {
+                "user_metadata": {
+                    **(existing.user_metadata or {}),
+                    "spotify_user_id": spotify_user_id,
+                    "provider": "spotify",
+                }
+            },
+        )
 
-    # Generate a session link to get an access token
+    # Store display name in profiles table (outside try so failures don't
+    # trigger the "user already exists" fallback)
+    if is_new_user and display_name:
+        sb.table("profiles").upsert(
+            {"user_id": user_id, "display_name": display_name}
+        ).execute()
+
+    # Generate a session via magic link OTP verification
     link_resp = sb.auth.admin.generate_link(
         {
             "type": "magiclink",
@@ -380,38 +389,48 @@ async def _upsert_spotify_user(
         }
     )
 
-    # Use an ephemeral client to sign in with the magic link token
     ephemeral = _ephemeral_client()
     if hasattr(link_resp, "properties") and hasattr(
         link_resp.properties, "hashed_token"
     ):
-        try:
-            verify_resp = ephemeral.auth.verify_otp(
-                {
-                    "token_hash": link_resp.properties.hashed_token,
-                    "type": "magiclink",
-                }
-            )
-            if verify_resp.session:
-                return verify_resp.session.access_token, user_id
-        except Exception:
-            logger.exception("OTP verification failed, falling back to generate_link")
-
-    # Fallback: return the link token if direct OTP verify fails
-    if hasattr(link_resp, "properties") and hasattr(
-        link_resp.properties, "action_link"
-    ):
-        action_link = link_resp.properties.action_link
-        # Extract the token from the action link
-        if "token=" in action_link:
-            token = action_link.split("token=")[1].split("&")[0]
-            return token, user_id
+        verify_resp = ephemeral.auth.verify_otp(
+            {
+                "token_hash": link_resp.properties.hashed_token,
+                "type": "magiclink",
+            }
+        )
+        if verify_resp.session:
+            return verify_resp.session.access_token, user_id
 
     raise HTTPException(500, "Failed to generate authentication session")
 
 
+def _find_user_by_email(sb, email: str):
+    """Find a Supabase auth user by email using paginated admin list.
+
+    Iterates through all pages to handle large user bases.
+    Returns the user object or ``None``.
+    """
+    page = 1
+    per_page = 50
+    while True:
+        users = sb.auth.admin.list_users(page=page, per_page=per_page)
+        if not users:
+            break
+        for u in users:
+            if hasattr(u, "email") and u.email == email:
+                return u
+        if len(users) < per_page:
+            break
+        page += 1
+    return None
+
+
 @router.post("/spotify/refresh", response_model=SpotifyTokenData)
-async def spotify_refresh_token(refresh_token: str = Body(..., embed=True)) -> SpotifyTokenData:
+async def spotify_refresh_token(
+    req: SpotifyRefreshRequest,
+    _user_id: str = Depends(require_auth),
+) -> SpotifyTokenData:
     """Exchange a Spotify refresh token for a new access token."""
     try:
         async with httpx.AsyncClient() as client:
@@ -423,7 +442,7 @@ async def spotify_refresh_token(refresh_token: str = Body(..., embed=True)) -> S
                 },
                 data={
                     "grant_type": "refresh_token",
-                    "refresh_token": refresh_token,
+                    "refresh_token": req.refresh_token,
                 },
             )
         if resp.status_code != 200:
@@ -431,11 +450,31 @@ async def spotify_refresh_token(refresh_token: str = Body(..., embed=True)) -> S
             raise HTTPException(400, "Failed to refresh Spotify token")
 
         data = resp.json()
+        new_access_token = data["access_token"]
+        new_refresh_token = data.get("refresh_token", req.refresh_token)
+        new_expires_in = data.get("expires_in", 3600)
+        new_scope = data.get("scope", "")
+
+        # Persist updated tokens so server-side code stays in sync
+        new_expires_at = (
+            datetime.now(timezone.utc) + timedelta(seconds=new_expires_in)
+        ).isoformat()
+        get_supabase_admin().table("spotify_tokens").upsert(
+            {
+                "user_id": _user_id,
+                "access_token": new_access_token,
+                "refresh_token": new_refresh_token,
+                "expires_at": new_expires_at,
+                "scope": new_scope,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        ).execute()
+
         return SpotifyTokenData(
-            access_token=data["access_token"],
-            refresh_token=data.get("refresh_token", refresh_token),
-            expires_in=data.get("expires_in", 3600),
-            scope=data.get("scope", ""),
+            access_token=new_access_token,
+            refresh_token=new_refresh_token,
+            expires_in=new_expires_in,
+            scope=new_scope,
         )
     except HTTPException:
         raise
