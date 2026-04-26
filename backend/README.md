@@ -91,9 +91,11 @@ so the frontend can develop without a GPU. Set to `false` + configure
 
 ## Async Batch Analysis
 
-Analysis is fully async. Submit songs → get a `batch_id` → listen for results via SSE.
+`POST /clusters/analyze` returns an SSE stream immediately. Processing runs
+in a background task — if you disconnect, processing continues and results
+are still cached to Supabase.
 
-### Step 1: Submit
+### Usage
 
 ```js
 const resp = await fetch('/clusters/analyze', {
@@ -103,38 +105,31 @@ const resp = await fetch('/clusters/analyze', {
     spotify_playlist_url: 'https://open.spotify.com/playlist/...',
   }),
 });
-const { batch_id, total_songs } = await resp.json();
-// Returns immediately: { batch_id: "abc123", total_songs: 12, status: "processing" }
-```
 
-### Step 2: Listen for results (SSE)
+const reader = resp.body.getReader();
+const decoder = new TextDecoder();
+let buffer = '';
 
-```js
-const es = new EventSource(`/clusters/batch/${batch_id}/events`);
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  buffer += decoder.decode(value, { stream: true });
 
-es.addEventListener('song_complete', (e) => {
-  const data = JSON.parse(e.data);
-  // { song: "Coldplay - Yellow", index: 3, total: 12, cached: false }
-  console.log(`[${data.index}/${data.total}] ${data.song} done`);
-});
-
-es.addEventListener('song_error', (e) => {
-  const data = JSON.parse(e.data);
-  // { song: "...", index: 3, total: 12, error: "No audio source" }
-  console.warn(`Skipped: ${data.song}`);
-});
-
-es.addEventListener('complete', (e) => {
-  const result = JSON.parse(e.data);
-  // Full ClusterAnalyzeResponse with combined brain data
-  console.log('All done!', result);
-  es.close();
-});
-
-es.addEventListener('error', (e) => {
-  console.error('Batch failed');
-  es.close();
-});
+  // Parse SSE events from buffer
+  const lines = buffer.split('\n');
+  buffer = lines.pop();
+  let eventType = null;
+  for (const line of lines) {
+    if (line.startsWith('event: ')) eventType = line.slice(7);
+    else if (line.startsWith('data: ') && eventType) {
+      const data = JSON.parse(line.slice(6));
+      if (eventType === 'started') console.log('Batch started:', data.batch_id);
+      if (eventType === 'song_complete') console.log(`[${data.index}/${data.total}] ${data.song}`);
+      if (eventType === 'complete') console.log('Done!', data);
+      eventType = null;
+    }
+  }
+}
 ```
 
 ### SSE Events

@@ -254,27 +254,44 @@ async def _process_batch(
 @router.post("/analyze")
 async def analyze_cluster(
     req: ClusterAnalyzeRequest,
+    request: Request,
     authorization: str | None = Header(None),
 ):
-    """Submit songs for analysis. Returns immediately with a batch_id.
+    """Analyze songs and stream results via SSE.
 
-    Processing runs in the background. Subscribe to events via
-    `GET /clusters/batch/{batch_id}/events` (SSE) to get notified
-    as each song finishes.
+    Returns an SSE stream immediately. Processing runs in a background
+    task — if the client disconnects, processing continues and results
+    are still cached to Supabase. No work is lost.
 
-    ## Response
-
-    ```json
-    {"batch_id": "abc123", "total_songs": 12, "status": "processing"}
-    ```
-
-    ## Then listen for events
+    ## Usage
 
     ```js
-    const es = new EventSource('/clusters/batch/abc123/events');
-    es.addEventListener('song_complete', (e) => { ... });
-    es.addEventListener('complete', (e) => { es.close(); });
+    const resp = await fetch('/clusters/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        spotify_playlist_url: 'https://open.spotify.com/playlist/...',
+      }),
+    });
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      // parse SSE events from buffer
+    }
     ```
+
+    ## SSE Events
+
+    | Event | Data | When |
+    |-------|------|------|
+    | `song_complete` | `{song, index, total, cached}` | Song finished and cached to DB |
+    | `song_error` | `{song, index, total, error}` | Song failed (skipped) |
+    | `complete` | Full `ClusterAnalyzeResponse` JSON | All songs done |
+    | `error` | `{message}` | Fatal error |
     """
     all_cluster_songs = await _resolve_songs(req)
     user_id = _try_get_user_id(authorization)
@@ -288,44 +305,13 @@ async def analyze_cluster(
 
     logger.info("Batch %s started: %d songs", batch_id, len(all_cluster_songs))
 
-    return {
-        "batch_id": batch_id,
-        "total_songs": len(all_cluster_songs),
-        "status": "processing",
-    }
-
-
-@router.get("/batch/{batch_id}/events")
-async def batch_events(batch_id: str, request: Request):
-    """Subscribe to SSE events for a batch.
-
-    Opens a long-lived connection. Events are pushed as each song
-    finishes processing. The connection closes after the final
-    `complete` or `error` event.
-
-    If the client disconnects and reconnects, any events that were
-    published while disconnected are lost, but the batch keeps
-    processing. Already-cached songs will appear instantly on the
-    next analysis request.
-
-    ## SSE Events
-
-    | Event | Data | When |
-    |-------|------|------|
-    | `song_complete` | `{song, index, total, cached}` | Song finished and cached to DB |
-    | `song_error` | `{song, index, total, error}` | Song failed (skipped) |
-    | `complete` | Full `ClusterAnalyzeResponse` JSON | All songs done |
-    | `error` | `{message}` | Fatal error |
-    """
-    batch = _batches.get(batch_id)
-    if not batch:
-        raise HTTPException(404, f"Batch {batch_id} not found")
-
-    q: asyncio.Queue = batch["events"]
-
     async def event_stream():
-        if batch["done"] and q.empty():
-            return
+        # Emit batch_id so the client knows the batch identifier
+        yield _sse_event("started", {
+            "batch_id": batch_id,
+            "total_songs": len(all_cluster_songs),
+        })
+
         while True:
             if await request.is_disconnected():
                 return
