@@ -305,8 +305,10 @@ def save_analysis(
 
     Returns ``True`` if the row was inserted successfully.
     """
-    client = _get_client()
-    if client is None:
+    try:
+        from app.services.supabase_client import get_supabase_admin
+        admin = get_supabase_admin()
+    except Exception:
         return False
 
     try:
@@ -317,7 +319,7 @@ def save_analysis(
             "payload": payload,
             "owner_id": owner_id,
         }
-        client.table("analyses").insert(row).execute()
+        admin.table("analyses").insert(row).execute()
         logger.info("Saved analysis %s (kind=%s, owner=%s)", analysis_id, kind, owner_id)
         return True
     except Exception:

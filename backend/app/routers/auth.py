@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from supabase import create_client
 
@@ -411,7 +411,7 @@ async def _upsert_spotify_user(
 
 
 @router.post("/spotify/refresh", response_model=SpotifyTokenData)
-async def spotify_refresh_token(refresh_token: str) -> SpotifyTokenData:
+async def spotify_refresh_token(refresh_token: str = Body(..., embed=True)) -> SpotifyTokenData:
     """Exchange a Spotify refresh token for a new access token."""
     try:
         async with httpx.AsyncClient() as client:
