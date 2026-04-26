@@ -10,6 +10,7 @@ interface BrainSceneProps {
   flashing?: boolean;
   interactive?: boolean;
   activationLevel?: number;
+  fingerprint?: string;
   timePosition?: number;
 }
 
@@ -18,6 +19,7 @@ export default function BrainScene({
   flashing = false,
   interactive = false,
   activationLevel = 0.5,
+  fingerprint,
   timePosition = 0,
 }: BrainSceneProps) {
   return (
@@ -37,6 +39,7 @@ export default function BrainScene({
           <BrainMesh
             flashing={flashing}
             activationLevel={activationLevel}
+            fingerprint={fingerprint}
             timePosition={timePosition}
           />
         </Suspense>

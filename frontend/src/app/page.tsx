@@ -253,7 +253,7 @@ export default function Home() {
         setProcessingProgress(data.index);
         setProcessingTotal(data.total);
         setProcessingStatus(
-          `Analyzed ${data.index}/${data.total}: ${data.song}${data.cached ? " (cached)" : ""}`,
+          `Analyzed ${data.index}/${data.total}: ${data.song}`,
         );
       });
 
@@ -312,8 +312,48 @@ export default function Home() {
   const overviewText = analysisResult
     ? (analysisResult as Record<string, unknown>).summary as string ??
       (analysisResult as Record<string, unknown>).vibe_description as string ??
-      "This music fits a limbic-dominant profile with strong auditory cortex engagement. High introspective alignment suggests deep default-mode network resonance characteristic of emotional processing music."
-    : "This music fits a limbic-dominant profile with strong auditory cortex engagement. High introspective alignment suggests deep default-mode network resonance characteristic of emotional processing music.";
+      "Analysis complete — explore the brain activation patterns above."
+    : "";
+
+  // Extract region scores for radar chart
+  const radarData = useMemo(() => {
+    if (!analysisResult) return undefined;
+    const scores =
+      (analysisResult as Record<string, unknown>).combined_region_scores as Record<string, number> | undefined ??
+      (analysisResult as Record<string, unknown>).region_scores as Record<string, number> | undefined;
+    if (!scores) return undefined;
+    return Object.entries(scores)
+      .filter(([key]) => key !== "whole_cortex")
+      .map(([key, value]) => ({
+        attribute: key.replace(/_/g, " "),
+        value: Math.round(Number(value) * 100),
+      }));
+  }, [analysisResult]);
+
+  // Extract fingerprint for brain visualization
+  const fingerprint = useMemo(() => {
+    if (!analysisResult) return undefined;
+    return (
+      (analysisResult as Record<string, unknown>).combined_fingerprint_b64 as string | undefined ??
+      (analysisResult as Record<string, unknown>).fingerprint as string | undefined
+    );
+  }, [analysisResult]);
+
+  // Extract top matches for song recommendations
+  const topMatches = useMemo(() => {
+    if (!analysisResult) return undefined;
+    const matches = (analysisResult as Record<string, unknown>).top_matches as Array<{
+      song: { title: string; artist: string };
+      similarity_score: number;
+      matching_regions?: string[];
+    }> | undefined;
+    if (!matches || matches.length === 0) return undefined;
+    return matches.map((m) => ({
+      title: m.song.title,
+      artist: m.song.artist,
+      tag: m.matching_regions?.[0]?.replace(/_/g, " ") ?? `${Math.round(m.similarity_score * 100)}% match`,
+    }));
+  }, [analysisResult]);
 
   if (loading || !user) {
     return (
@@ -371,6 +411,8 @@ export default function Home() {
           className="w-full h-full"
           flashing={brainFlashing}
           interactive={viewState === "analysis"}
+          activationLevel={analysisResult ? 0.8 : 0.5}
+          fingerprint={fingerprint}
           timePosition={0}
         />
       </motion.div>
@@ -421,21 +463,33 @@ export default function Home() {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.6, delay: 0.4 }}
             >
-              {/* Timeline — narrower, centered */}
-              <AudioTimeline duration={214} className="max-w-[260px] mx-auto w-full shrink-0" />
-
-              {/* Radar chart — constrained, centered */}
-              <div className="flex justify-center shrink-0 mt-2">
-                <MusicRadarChart className="w-full max-w-[340px]" style={{ height: "min(220px, 26vh)" }} />
+              {/* Top row: Radar + Timeline side by side */}
+              <div className="flex gap-6 shrink-0">
+                <MusicRadarChart
+                  data={radarData}
+                  className="w-1/2"
+                  style={{ height: "min(240px, 28vh)" }}
+                />
+                <div className="w-1/2 flex flex-col justify-center">
+                  <AudioTimeline duration={214} className="w-full" />
+                  {overviewText && (
+                    <p className="text-[#0d3b66]/50 text-xs mt-4 leading-relaxed line-clamp-4">
+                      {overviewText}
+                    </p>
+                  )}
+                </div>
               </div>
 
-              {/* Chat + Song Recommendations */}
+              {/* Bottom: Chat + Song Recommendations */}
               <div className="flex-1 min-h-0 flex gap-4 mt-4">
                 <ChatInterface
                   overview={overviewText}
                   className="flex-1 min-w-0"
                 />
-                <SongRecommendations className="w-[40%] shrink-0" />
+                <SongRecommendations
+                  songs={topMatches}
+                  className="w-[40%] shrink-0"
+                />
               </div>
             </motion.div>
           )}
