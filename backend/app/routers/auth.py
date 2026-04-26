@@ -219,8 +219,17 @@ async def spotify_oauth_start() -> OAuthStartResponse:
 
 
 @router.get("/spotify/callback")
-async def spotify_oauth_callback(code: str, state: str) -> RedirectResponse:
+async def spotify_oauth_callback(
+    state: str,
+    code: str | None = None,
+    error: str | None = None,
+) -> RedirectResponse:
     """Handle the Spotify OAuth redirect: exchange code, upsert user, redirect."""
+    if error or not code:
+        return RedirectResponse(
+            url=f"{settings.frontend_url}/auth/callback"
+            f"?error={error or 'access_denied'}&provider=spotify"
+        )
     if not _verify_state(state):
         raise HTTPException(400, "Invalid or expired OAuth state")
     try:
@@ -294,7 +303,7 @@ async def spotify_oauth_callback(code: str, state: str) -> RedirectResponse:
         # 5. Redirect to frontend with the Supabase access token
         redirect_url = (
             f"{settings.frontend_url}/auth/callback"
-            f"?access_token={supabase_token}&provider=spotify"
+            f"#access_token={supabase_token}&provider=spotify"
         )
         return RedirectResponse(url=redirect_url)
 
@@ -430,11 +439,31 @@ async def spotify_refresh_token(
             raise HTTPException(400, "Failed to refresh Spotify token")
 
         data = resp.json()
+        new_access_token = data["access_token"]
+        new_refresh_token = data.get("refresh_token", req.refresh_token)
+        new_expires_in = data.get("expires_in", 3600)
+        new_scope = data.get("scope", "")
+
+        # Persist updated tokens so server-side code stays in sync
+        new_expires_at = (
+            datetime.now(timezone.utc) + timedelta(seconds=new_expires_in)
+        ).isoformat()
+        get_supabase_admin().table("spotify_tokens").upsert(
+            {
+                "user_id": _user_id,
+                "access_token": new_access_token,
+                "refresh_token": new_refresh_token,
+                "expires_at": new_expires_at,
+                "scope": new_scope,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        ).execute()
+
         return SpotifyTokenData(
-            access_token=data["access_token"],
-            refresh_token=data.get("refresh_token", req.refresh_token),
-            expires_in=data.get("expires_in", 3600),
-            scope=data.get("scope", ""),
+            access_token=new_access_token,
+            refresh_token=new_refresh_token,
+            expires_in=new_expires_in,
+            scope=new_scope,
         )
     except HTTPException:
         raise
