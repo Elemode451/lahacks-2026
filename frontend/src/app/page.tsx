@@ -36,6 +36,9 @@ const SongRecommendations = dynamic(() => import("@/components/SongRecommendatio
 const KeyInfoDisplay = dynamic(() => import("@/components/KeyInfo"), {
   ssr: false,
 });
+const EmotionalProfile = dynamic(() => import("@/components/EmotionalProfile"), {
+  ssr: false,
+});
 
 type ViewState = "intro" | "importing" | "analyzing" | "processing" | "analysis";
 type ImportType = "file" | "spotify" | "youtube";
@@ -580,12 +583,36 @@ export default function Home() {
 
   useEffect(() => () => cancelAnalyzeTimeout(), []);
 
-  // Build overview text from analysis result
-  const overviewText = analysisResult
-    ? (analysisResult as Record<string, unknown>).summary as string ??
-      (analysisResult as Record<string, unknown>).vibe_description as string ??
-      "This music fits a limbic-dominant profile with strong auditory cortex engagement. High introspective alignment suggests deep default-mode network resonance characteristic of emotional processing music."
-    : "This music fits a limbic-dominant profile with strong auditory cortex engagement. High introspective alignment suggests deep default-mode network resonance characteristic of emotional processing music.";
+  // Build overview text from analysis result, enriched with emotional profile
+  const overviewText = useMemo(() => {
+    const fallback =
+      "This music fits a limbic-dominant profile with strong auditory cortex engagement. High introspective alignment suggests deep default-mode network resonance characteristic of emotional processing music.";
+    if (!analysisResult) return fallback;
+
+    const emotionalProfile = analysisResult.emotional_profile as
+      | { summary?: string; dominant_emotions?: string[] }
+      | undefined;
+
+    // Start with emotional summary if available (more descriptive)
+    let text =
+      emotionalProfile?.summary ??
+      (analysisResult.summary as string | undefined) ??
+      (analysisResult.vibe_description as string | undefined) ??
+      fallback;
+
+    // Append dominant emotions as a readable sentence
+    const dominant = emotionalProfile?.dominant_emotions;
+    if (dominant && dominant.length > 0) {
+      const formatted = dominant.map((e) => `**${e.toLowerCase()}**`);
+      const emotionList =
+        formatted.length <= 2
+          ? formatted.join(" and ")
+          : `${formatted.slice(0, -1).join(", ")}, and ${formatted[formatted.length - 1]}`;
+      text += ` The primary emotional responses predicted are ${emotionList}.`;
+    }
+
+    return text;
+  }, [analysisResult]);
 
   if (loading || !user) {
     return (
@@ -731,6 +758,16 @@ export default function Home() {
                   <MusicRadarChart data={radarData} className="w-full max-w-[340px]" style={{ height: "min(220px, 26vh)" }} />
                 </div>
               </motion.div>
+
+              {/* Emotional Response */}
+              <EmotionalProfile
+                emotionalProfile={
+                  analysisResult?.emotional_profile as
+                    | { emotions?: { name: string; intensity: number; level: string; description: string }[]; dominant_emotions?: string[]; summary?: string }
+                    | null
+                    | undefined
+                }
+              />
 
               {/* Key Info */}
               <KeyInfoDisplay
