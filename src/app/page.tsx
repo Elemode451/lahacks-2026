@@ -204,7 +204,7 @@ export default function Home() {
       <AnimatePresence>
         {viewState !== "analysis" && (
           <motion.div
-            className="absolute bg-[rgba(249,87,56,0.2)] overflow-hidden z-20 shadow-sm backdrop-blur-[24px]"
+            className="absolute bg-[rgba(249,87,56,0.08)] overflow-hidden z-20 shadow-sm backdrop-blur-[40px] border border-[rgba(249,87,56,0.15)]"
             initial={false}
             animate={{
               width: viewState === "intro" ? layout.pillW : layout.panelW,
