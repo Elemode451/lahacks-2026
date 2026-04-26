@@ -593,14 +593,17 @@ export default function Home() {
       | { summary?: string; dominant_emotions?: string[] }
       | undefined;
 
-    // Start with emotional summary if available (more descriptive)
+    // Prefer emotional summary (already includes dominant emotions)
+    if (emotionalProfile?.summary) {
+      return emotionalProfile.summary;
+    }
+
+    // Fall back to generic summary/vibe, append dominant emotions if available
     let text =
-      emotionalProfile?.summary ??
       (analysisResult.summary as string | undefined) ??
       (analysisResult.vibe_description as string | undefined) ??
       fallback;
 
-    // Append dominant emotions as a readable sentence
     const dominant = emotionalProfile?.dominant_emotions;
     if (dominant && dominant.length > 0) {
       const formatted = dominant.map((e) => e.toLowerCase());
