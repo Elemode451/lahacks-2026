@@ -91,45 +91,39 @@ so the frontend can develop without a GPU. Set to `false` + configure
 
 ## Async Batch Analysis
 
-`POST /clusters/analyze` returns an SSE stream immediately. Processing runs
-in a background task — if you disconnect, processing continues and results
-are still cached to Supabase.
+Two requests:
+
+1. **`POST /clusters/analyze`** — submit songs, returns `200 OK` with `{batch_id, total_songs}` instantly
+2. **`GET /clusters/batch/{batch_id}/events`** — SSE stream that pings the client as each song finishes
+
+Processing runs in the background. If the SSE client disconnects, processing
+continues and results are still cached to Supabase.
 
 ### Usage
 
 ```js
-const resp = await fetch('/clusters/analyze', {
+// 1. Submit (returns immediately)
+const { batch_id } = await fetch('/clusters/analyze', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
     spotify_playlist_url: 'https://open.spotify.com/playlist/...',
   }),
+}).then(r => r.json());
+
+// 2. Listen for pings (SSE — events arrive automatically)
+const es = new EventSource(`/clusters/batch/${batch_id}/events`);
+
+es.addEventListener('song_complete', (e) => {
+  const data = JSON.parse(e.data);
+  console.log(`[${data.index}/${data.total}] ${data.song} done`);
 });
 
-const reader = resp.body.getReader();
-const decoder = new TextDecoder();
-let buffer = '';
-
-while (true) {
-  const { done, value } = await reader.read();
-  if (done) break;
-  buffer += decoder.decode(value, { stream: true });
-
-  // Parse SSE events from buffer
-  const lines = buffer.split('\n');
-  buffer = lines.pop();
-  let eventType = null;
-  for (const line of lines) {
-    if (line.startsWith('event: ')) eventType = line.slice(7);
-    else if (line.startsWith('data: ') && eventType) {
-      const data = JSON.parse(line.slice(6));
-      if (eventType === 'started') console.log('Batch started:', data.batch_id);
-      if (eventType === 'song_complete') console.log(`[${data.index}/${data.total}] ${data.song}`);
-      if (eventType === 'complete') console.log('Done!', data);
-      eventType = null;
-    }
-  }
-}
+es.addEventListener('complete', (e) => {
+  const result = JSON.parse(e.data);
+  console.log('All done!', result);
+  es.close();
+});
 ```
 
 ### SSE Events
