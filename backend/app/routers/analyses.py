@@ -51,7 +51,10 @@ async def get_analysis(
     Public if the analysis has a share_slug. Otherwise requires auth
     and the requesting user must be the owner.
     """
-    sb = get_supabase_admin()
+    try:
+        sb = get_supabase_admin()
+    except Exception:
+        raise HTTPException(503, "Service unavailable")
 
     result = (
         sb.table("analyses")
@@ -120,7 +123,10 @@ async def share_analysis(
 @router.get("/share/{slug}", response_model=AnalysisDetail)
 async def get_shared_analysis(slug: str):
     """View a publicly shared analysis by its slug."""
-    sb = get_supabase_admin()
+    try:
+        sb = get_supabase_admin()
+    except Exception:
+        raise HTTPException(503, "Service unavailable")
 
     result = (
         sb.table("analyses")
