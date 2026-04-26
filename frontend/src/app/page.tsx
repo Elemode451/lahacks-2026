@@ -277,6 +277,7 @@ export default function Home() {
           `Analysis failed: ${data?.message ?? "Unknown error"}`,
         );
         setBrainFlashing(false);
+        setViewState("importing");
         eventSource.close();
         eventSourceRef.current = null;
       });
