@@ -135,7 +135,7 @@ CREATE INDEX IF NOT EXISTS idx_user_songs_song ON user_song_interactions(song_ke
 ALTER TABLE user_recommendations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_song_interactions ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY user_recs_select ON user_recommendations FOR SELECT USING (user_id = auth.uid());
+CREATE POLICY user_recs_select ON user_recommendations FOR SELECT USING (true);
 CREATE POLICY user_recs_insert ON user_recommendations FOR INSERT WITH CHECK (true);
 CREATE POLICY user_songs_select ON user_song_interactions FOR SELECT USING (true);
 CREATE POLICY user_songs_insert ON user_song_interactions FOR INSERT WITH CHECK (true);

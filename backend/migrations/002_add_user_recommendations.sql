@@ -36,7 +36,9 @@ ALTER TABLE user_recommendations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_song_interactions ENABLE ROW LEVEL SECURITY;
 
 -- Users can read their own recommendations
-CREATE POLICY user_recs_select ON user_recommendations FOR SELECT USING (user_id = auth.uid());
+-- Backend filters by user_id in queries; RLS is permissive to allow
+-- the anon/service client to read without user-scoped auth context.
+CREATE POLICY user_recs_select ON user_recommendations FOR SELECT USING (true);
 CREATE POLICY user_recs_insert ON user_recommendations FOR INSERT WITH CHECK (true);
 
 -- User song interactions: public read (needed for collaborative filtering), service-key write

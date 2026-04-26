@@ -132,6 +132,7 @@ async def analyze_cluster(
     songs: list[SongInfo] = []
     fingerprints: list[SongFingerprints] = []
     audio_paths: list = []
+    user_id = _try_get_user_id(authorization)
 
     for cluster_song in all_cluster_songs:
         try:
@@ -185,7 +186,6 @@ async def analyze_cluster(
             fingerprints.append(song_fp)
 
             # Track interaction for collaborative filtering
-            user_id = _try_get_user_id(authorization)
             if user_id and cache_key:
                 asyncio.get_event_loop().run_in_executor(
                     None, record_user_interaction, user_id, cache_key,
