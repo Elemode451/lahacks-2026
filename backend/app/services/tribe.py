@@ -209,7 +209,12 @@ async def _submit_and_poll(audio_path: Path) -> dict:
             else:
                 pos = data.get("queue_position", "?")
                 logger.debug("Job %s status=%s queue_pos=%s", job_id, status, pos)
-        except (httpx.ConnectError, httpx.ReadTimeout, httpx.HTTPStatusError) as exc:
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in (502, 503, 524):
+                logger.warning("Poll error for job %s: %s", job_id, exc)
+            else:
+                raise
+        except (httpx.ConnectError, httpx.ReadTimeout) as exc:
             # Transient network error during poll — keep trying
             logger.warning("Poll error for job %s: %s", job_id, exc)
 
