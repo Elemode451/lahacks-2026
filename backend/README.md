@@ -89,89 +89,71 @@ so the frontend can develop without a GPU. Set to `false` + configure
 
 ---
 
-## SSE Streaming Endpoint
+## Async Batch Analysis
 
-`POST /clusters/analyze/stream` — same request body as `/clusters/analyze`, but
-streams results via **Server-Sent Events** instead of waiting for the full batch.
-The server only notifies the client when a song is committed to the database — no
-intermediate polling or progress spam.
+Analysis is fully async. Submit songs → get a `batch_id` → listen for results via SSE.
+
+### Step 1: Submit
+
+```js
+const resp = await fetch('/clusters/analyze', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    spotify_playlist_url: 'https://open.spotify.com/playlist/...',
+  }),
+});
+const { batch_id, total_songs } = await resp.json();
+// Returns immediately: { batch_id: "abc123", total_songs: 12, status: "processing" }
+```
+
+### Step 2: Listen for results (SSE)
+
+```js
+const es = new EventSource(`/clusters/batch/${batch_id}/events`);
+
+es.addEventListener('song_complete', (e) => {
+  const data = JSON.parse(e.data);
+  // { song: "Coldplay - Yellow", index: 3, total: 12, cached: false }
+  console.log(`[${data.index}/${data.total}] ${data.song} done`);
+});
+
+es.addEventListener('song_error', (e) => {
+  const data = JSON.parse(e.data);
+  // { song: "...", index: 3, total: 12, error: "No audio source" }
+  console.warn(`Skipped: ${data.song}`);
+});
+
+es.addEventListener('complete', (e) => {
+  const result = JSON.parse(e.data);
+  // Full ClusterAnalyzeResponse with combined brain data
+  console.log('All done!', result);
+  es.close();
+});
+
+es.addEventListener('error', (e) => {
+  console.error('Batch failed');
+  es.close();
+});
+```
 
 ### SSE Events
 
 | Event | Data | When |
 |-------|------|------|
 | `song_complete` | `{song, index, total, cached}` | Song finished and cached to Supabase |
-| `song_error` | `{song, index, total, error}` | Song failed (skipped, continues to next) |
-| `complete` | Full `ClusterAnalyzeResponse` JSON | All songs done — same shape as `POST /clusters/analyze` |
-| `error` | `{message}` | Fatal error (no results) |
+| `song_error` | `{song, index, total, error}` | Song failed (skipped) |
+| `complete` | Full `ClusterAnalyzeResponse` JSON | All songs done |
+| `error` | `{message}` | Fatal error |
 
-### Frontend Integration
+### Key behavior
 
-```js
-async function analyzeStream(requestBody, onSongDone, onComplete, onError) {
-  const resp = await fetch('/clusters/analyze/stream', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      // Optional: Authorization: `Bearer ${token}`
-    },
-    body: JSON.stringify(requestBody),
-  });
-
-  const reader = resp.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop();
-
-    let eventType = null;
-    for (const line of lines) {
-      if (line.startsWith('event: ')) {
-        eventType = line.slice(7);
-      } else if (line.startsWith('data: ') && eventType) {
-        const data = JSON.parse(line.slice(6));
-        switch (eventType) {
-          case 'song_complete':
-            // { song: "Coldplay - Yellow", index: 3, total: 12, cached: false }
-            onSongDone(data);
-            break;
-          case 'song_error':
-            // { song: "...", index: 3, total: 12, error: "No audio source" }
-            onSongDone({ ...data, error: data.error });
-            break;
-          case 'complete':
-            // Full ClusterAnalyzeResponse (same shape as POST /clusters/analyze)
-            onComplete(data);
-            break;
-          case 'error':
-            onError(data.message);
-            break;
-        }
-        eventType = null;
-      }
-    }
-  }
-}
-
-// Usage:
-analyzeStream(
-  { spotify_playlist_url: 'https://open.spotify.com/playlist/...' },
-  (song) => console.log(`[${song.index}/${song.total}] ${song.song} done`),
-  (result) => console.log('All done!', result),
-  (err) => console.error('Error:', err),
-);
-```
+- **Submit returns immediately** — processing runs in the background
+- **Client can disconnect and reconnect** — the batch keeps processing regardless
+- **Songs are cached to Supabase as they finish** — even if the client never reconnects, the work is saved
+- **Keepalive comments** are sent every 30s to prevent proxy timeouts on the SSE connection
 
 ### Decoding Brain Data
-
-The `complete` event returns the same response as `POST /clusters/analyze`.
-Decode the base64 vertex data:
 
 ```js
 function decodeFingerprintB64(b64String) {
@@ -187,5 +169,4 @@ const temporal = decodeFingerprintB64(data.temporal_fingerprints_b64);
 // Segment i: temporal.slice(i * 20484, (i + 1) * 20484)
 ```
 
-For full endpoint docs (all routes, schemas, auth requirements), see the
-interactive Swagger UI at `http://localhost:8000/docs`.
+For full endpoint docs, see Swagger UI at `http://localhost:8000/docs`.
