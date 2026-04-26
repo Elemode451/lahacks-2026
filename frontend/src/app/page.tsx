@@ -789,12 +789,21 @@ export default function Home() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.4 }}
           >
-            {/* Pulsing brain icon */}
+            {/* Pulsing brain icon — entrance then continuous pulse */}
             <motion.div
-              className="pulse-glow mb-8"
+              className="mb-8"
               initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ duration: 0.6, ease: panelEase }}
+              animate={{
+                scale: [0.8, 1, 1, 1.05, 1],
+                opacity: [0, 1, 1, 0.6, 1],
+              }}
+              transition={{
+                duration: 2.6,
+                times: [0, 0.23, 0.23, 0.615, 1],
+                repeat: Infinity,
+                repeatDelay: 0,
+                ease: [0.16, 1, 0.3, 1],
+              }}
             >
               <div className="w-16 h-16 rounded-full bg-[rgba(249,87,56,0.12)] flex items-center justify-center">
                 <Brain className="w-8 h-8 text-[#f95738]" />

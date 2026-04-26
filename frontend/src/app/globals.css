@@ -106,16 +106,6 @@ input:focus, textarea:focus {
   background-color: rgba(249, 87, 56, 0.03);
 }
 
-/* Processing pulse animation */
-@keyframes pulse-glow {
-  0%, 100% { opacity: 0.6; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.05); }
-}
-
-.pulse-glow {
-  animation: pulse-glow 2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
-}
-
 /* Shimmer for loading text */
 @keyframes shimmer-text {
   0% { background-position: -200% center; }
