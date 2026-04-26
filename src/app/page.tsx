@@ -6,7 +6,6 @@ import dynamic from "next/dynamic";
 import { X, Send } from "lucide-react";
 import {
   SeratoneLogo,
-  SpiderChartSvg,
   SoundBarsIcon,
   FileIcon,
   SpotifyIcon,
@@ -18,8 +17,20 @@ import ColorBends, { type ColorBendsHandle } from "@/components/ColorBends";
 const BrainScene = dynamic(() => import("@/components/BrainScene"), {
   ssr: false,
 });
+const MusicRadarChart = dynamic(() => import("@/components/MusicRadarChart"), {
+  ssr: false,
+});
+const AudioTimeline = dynamic(() => import("@/components/AudioTimeline"), {
+  ssr: false,
+});
+const ChatInterface = dynamic(() => import("@/components/ChatInterface"), {
+  ssr: false,
+});
+const SongRecommendations = dynamic(() => import("@/components/SongRecommendations"), {
+  ssr: false,
+});
 
-type ViewState = "intro" | "importing" | "analysis";
+type ViewState = "intro" | "importing" | "analyzing" | "analysis";
 type ImportType = "file" | "spotify" | "youtube";
 
 const panelEase = [0.16, 1, 0.3, 1] as const;
@@ -31,6 +42,8 @@ export default function Home() {
   const [songs, setSongs] = useState<string[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [brainFlashing, setBrainFlashing] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const colorBendsRef = useRef<ColorBendsHandle>(null);
   const analyzeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [vw, setVw] = useState(1280);
@@ -48,12 +61,13 @@ export default function Home() {
 
   const layout = useMemo(() => {
     const contentH = vh - TOPBAR_H;
-    const brainSize = Math.min(contentH * 0.95, vw * 0.55);
+    const halfW = vw * 0.5;
+    const brainSize = Math.min(contentH * 0.95, halfW);
     return {
       brainW: brainSize,
       brainH: brainSize,
-      brainIntroX: vw * 0.5 - brainSize * 0.5,
-      brainAnalysisX: 0,
+      brainIntroX: (vw - brainSize) / 2,
+      brainAnalysisX: (halfW - brainSize) / 2,
       brainTop: TOPBAR_H + (contentH - brainSize) / 2,
       pillW: 140,
       pillH: 50,
@@ -63,8 +77,7 @@ export default function Home() {
       panelH: Math.min(contentH * 0.88, 650),
       panelX: (vw - Math.min(vw * 0.72, 920)) / 2,
       panelY: TOPBAR_H + (contentH - Math.min(contentH * 0.88, 650)) / 2,
-      rightPanelW: vw * 0.5,
-      logoLeft: vw * 0.14,
+      rightPanelW: halfW,
     };
   }, [vw, vh]);
 
@@ -80,6 +93,20 @@ export default function Home() {
     setSongs(songs.filter((_, i) => i !== index));
   };
 
+  const handleFileSelect = (fileList: FileList | null) => {
+    if (!fileList) return;
+    const audio = Array.from(fileList).filter(
+      (f) => f.type.startsWith("audio/") || /\.(mp3|wav|flac|aac|ogg|m4a|wma)$/i.test(f.name)
+    );
+    if (audio.length) setUploadedFiles((prev) => [...prev, ...audio]);
+  };
+
+  const handleRemoveFile = (index: number) => {
+    setUploadedFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const canAnalyze = importType === "file" ? uploadedFiles.length > 0 : songs.length > 0;
+
   const cancelAnalyzeTimeout = () => {
     if (analyzeTimeoutRef.current) {
       clearTimeout(analyzeTimeoutRef.current);
@@ -88,8 +115,10 @@ export default function Home() {
   };
 
   const handleAnalyze = () => {
+    if (!canAnalyze) return;
     cancelAnalyzeTimeout();
     setBrainFlashing(true);
+    setViewState("analyzing");
     analyzeTimeoutRef.current = setTimeout(() => {
       analyzeTimeoutRef.current = null;
       setBrainFlashing(false);
@@ -102,7 +131,7 @@ export default function Home() {
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-[#fffdf5] font-sans selection:bg-[#f95738] selection:text-white">
       {/* Color Bends Background — starts from top so topbar slide reveals it */}
-      <div className="absolute inset-0 pointer-events-none" style={{ top: 0 }}>
+      <div className="absolute inset-0 pointer-events-none" style={{ top: 0, opacity: 0.75 }}>
         <ColorBends
           ref={colorBendsRef}
           colors={["#0D3B66"]}
@@ -151,10 +180,10 @@ export default function Home() {
         />
       </motion.div>
 
-      {/* Logo Group — stationary, clickable to return to intro */}
+      {/* Logo Group — spans left half, centered horizontally, stationary */}
       <motion.div
-        className="absolute z-20 flex items-end cursor-pointer hover:opacity-80"
-        style={{ left: layout.logoLeft, top: TOPBAR_H - 41 }}
+        className="absolute z-20 flex items-end justify-center cursor-pointer hover:opacity-80"
+        style={{ left: 0, width: "50vw", top: TOPBAR_H - 41 }}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.6, ease: "linear", delay: 0.5 }}
@@ -176,24 +205,28 @@ export default function Home() {
         <AnimatePresence>
           {viewState === "analysis" && (
             <motion.div
-              className="absolute inset-0 p-12 flex flex-col items-center justify-center"
+              className="absolute inset-0 px-10 pt-8 pb-8 flex flex-col"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.6, delay: 0.4 }}
             >
-              <div className="relative w-full max-w-[380px]" style={{ aspectRatio: "1/1" }}>
-                <SpiderChartSvg className="absolute block inset-0 size-full" />
-                <p className="absolute -left-[50px] top-[35%] text-[#0d3b66] text-sm">danceability</p>
-                <p className="absolute left-[25%] bottom-[-20px] text-[#0d3b66] text-sm">energy</p>
-                <p className="absolute right-[25%] bottom-[-20px] text-[#0d3b66] text-sm">valence</p>
-                <p className="absolute -right-[20px] top-[35%] text-[#0d3b66] text-sm">tempo</p>
+              {/* Timeline — narrower, centered */}
+              <AudioTimeline duration={214} className="max-w-[260px] mx-auto w-full shrink-0" />
+
+              {/* Radar chart — constrained, centered */}
+              <div className="flex justify-center shrink-0 mt-2">
+                <MusicRadarChart className="w-full max-w-[340px]" style={{ height: "min(220px, 26vh)" }} />
               </div>
-              <p className="mt-12 text-[#0d3b66] text-sm tracking-[-0.56px] max-w-sm whitespace-pre-wrap text-center">
-                overview:
-                {"\n\n"}
-                This music fits a limbic-dominant profile with strong auditory cortex engagement. High introspective alignment suggests deep default-mode network resonance characteristic of emotional processing music.
-              </p>
+
+              {/* Chat + Song Recommendations */}
+              <div className="flex-1 min-h-0 flex gap-4 mt-4">
+                <ChatInterface
+                  overview="This music fits a limbic-dominant profile with strong auditory cortex engagement. High introspective alignment suggests deep default-mode network resonance characteristic of emotional processing music."
+                  className="flex-1 min-w-0"
+                />
+                <SongRecommendations className="w-[40%] shrink-0" />
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -209,9 +242,9 @@ export default function Home() {
 
       {/* Import Button / Panel — spring expansion */}
       <AnimatePresence>
-        {viewState !== "analysis" && (
+        {(viewState === "intro" || viewState === "importing") && (
           <motion.div
-            className="absolute bg-[rgba(249,87,56,0.2)] overflow-hidden z-20 shadow-sm backdrop-blur-[40px] border border-[rgba(249,87,56,0.4)]"
+            className="absolute bg-[rgba(249,87,56,0.32)] overflow-hidden z-20 shadow-sm backdrop-blur-[40px] border border-[rgba(249,87,56,0.5)]"
             initial={false}
             animate={{
               width: viewState === "intro" ? layout.pillW : layout.panelW,
@@ -289,12 +322,61 @@ export default function Home() {
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: 0.98 }}
                         transition={{ duration: 0.2 }}
-                        className="relative z-10 w-full flex-1 flex flex-col items-center justify-center text-[#f95738]"
+                        className="relative z-10 w-full flex-1 min-h-0 flex flex-col text-[#f95738]"
                       >
-                        <div className="absolute inset-0 rounded-[30px] border-[3px] border-[#f95738] border-dashed pointer-events-none opacity-40" />
-                        <UploadIcon className="w-[clamp(24px,2.5vw,36px)] h-[clamp(24px,2.5vw,36px)] mb-4" />
-                        <p className="text-[clamp(13px,1.1vw,16px)] font-medium tracking-tight">Drag and drop files here</p>
-                        <p className="text-[clamp(11px,0.9vw,13px)] mt-1.5 opacity-60">or click to browse</p>
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept="audio/*"
+                          multiple
+                          className="hidden"
+                          onChange={(e) => handleFileSelect(e.target.files)}
+                        />
+                        {uploadedFiles.length === 0 ? (
+                          <div
+                            className="flex-1 flex flex-col items-center justify-center cursor-pointer relative rounded-[30px]"
+                            onClick={() => fileInputRef.current?.click()}
+                            onDragOver={(e) => e.preventDefault()}
+                            onDrop={(e) => { e.preventDefault(); handleFileSelect(e.dataTransfer.files); }}
+                          >
+                            <div className="absolute inset-0 rounded-[30px] border-[3px] border-[#f95738] border-dashed pointer-events-none opacity-40" />
+                            <UploadIcon className="w-[clamp(24px,2.5vw,36px)] h-[clamp(24px,2.5vw,36px)] mb-4" />
+                            <p className="text-[clamp(13px,1.1vw,16px)] font-medium tracking-tight">Drag and drop files here</p>
+                            <p className="text-[clamp(11px,0.9vw,13px)] mt-1.5 opacity-60">or click to browse</p>
+                          </div>
+                        ) : (
+                          <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-3 pb-2">
+                            <AnimatePresence>
+                              {uploadedFiles.map((file, idx) => (
+                                <motion.div
+                                  key={`${file.name}-${idx}`}
+                                  initial={{ opacity: 0, y: 10 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, scale: 0.95 }}
+                                  className="relative bg-[rgba(249,87,56,0.08)] border border-[rgba(249,87,56,0.2)] rounded-full flex items-center w-full shrink-0"
+                                  style={{ padding: "13px 64px 13px 24px" }}
+                                >
+                                  <span className="text-[#f95738] font-medium truncate text-sm">{file.name}</span>
+                                  <button
+                                    onClick={() => handleRemoveFile(idx)}
+                                    className="absolute right-[clamp(6px,0.8vw,10px)] text-[#f95738] hover:text-[#d84b31] transition-colors flex items-center justify-center w-[clamp(28px,2.8vw,36px)] h-[clamp(28px,2.8vw,36px)] rounded-full"
+                                  >
+                                    <X className="size-4" />
+                                  </button>
+                                </motion.div>
+                              ))}
+                            </AnimatePresence>
+                            <button
+                              onClick={() => fileInputRef.current?.click()}
+                              onDragOver={(e) => e.preventDefault()}
+                              onDrop={(e) => { e.preventDefault(); handleFileSelect(e.dataTransfer.files); }}
+                              className="flex items-center justify-center gap-2 opacity-40 hover:opacity-70 transition-opacity text-sm py-2 cursor-pointer shrink-0"
+                            >
+                              <UploadIcon className="w-4 h-4" />
+                              add more files
+                            </button>
+                          </div>
+                        )}
                       </motion.div>
                     ) : (
                       <motion.div
@@ -316,14 +398,14 @@ export default function Home() {
                                   ? "Paste Spotify track/playlist link..."
                                   : "Paste YouTube video URL..."
                               }
-                              className="w-full bg-[rgba(249,87,56,0.06)] border border-[rgba(249,87,56,0.2)] focus:border-[#f95738] rounded-full text-[#f95738] placeholder-[rgba(249,87,56,0.35)] outline-none text-sm transition-colors"
+                              className="w-full bg-[rgba(249,87,56,0.06)] border border-[rgba(249,87,56,0.7)] focus:border-[#f95738] rounded-full text-[#f95738] placeholder-[rgba(249,87,56,0.75)] outline-none text-sm transition-colors"
                               style={{ padding: "13px 64px 13px 24px" }}
                             />
                             <button
                               type="submit"
                               className="absolute right-[clamp(6px,0.8vw,10px)] bg-[#f95738] text-white w-[clamp(28px,2.8vw,36px)] h-[clamp(28px,2.8vw,36px)] rounded-full hover:bg-[#d84b31] transition-colors flex items-center justify-center"
                             >
-                              <Send className="size-3.5 text-white" />
+                              <Send className="size-3.5 text-white -translate-x-px translate-y-px" />
                             </button>
                           </div>
                         </form>
@@ -375,14 +457,17 @@ export default function Home() {
                   </AnimatePresence>
                 </div>
 
-                {/* Bottom: song count left + analyze pill right */}
+                {/* Bottom: count left + analyze pill right */}
                 <div className="flex justify-between items-center shrink-0" style={{ marginTop: "clamp(12px, 3%, 24px)" }}>
                   <span className="text-[#f95738] font-medium text-[clamp(12px,1.1vw,16px)] tracking-[-0.5px]">
-                    {songs.length} {songs.length === 1 ? "song" : "songs"} added
+                    {importType === "file"
+                      ? `${uploadedFiles.length} ${uploadedFiles.length === 1 ? "file" : "files"} added`
+                      : `${songs.length} ${songs.length === 1 ? "song" : "songs"} added`}
                   </span>
                   <button
                     onClick={handleAnalyze}
-                    className="bg-[rgba(249,87,56,0.35)] hover:bg-[rgba(249,87,56,0.5)] transition-colors text-[#f95738] font-medium text-[clamp(14px,1.2vw,18px)] tracking-[-0.72px] rounded-full cursor-pointer"
+                    disabled={!canAnalyze}
+                    className={`transition-colors text-[#f95738] font-medium text-[clamp(14px,1.2vw,18px)] tracking-[-0.72px] rounded-full ${canAnalyze ? "bg-[rgba(249,87,56,0.35)] hover:bg-[rgba(249,87,56,0.5)] cursor-pointer" : "bg-[rgba(249,87,56,0.15)] opacity-40 cursor-not-allowed"}`}
                     style={{ padding: "clamp(8px, 1vh, 12px) clamp(20px, 2.5vw, 36px)" }}
                   >
                     analyze
