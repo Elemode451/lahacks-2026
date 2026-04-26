@@ -5,6 +5,24 @@ import * as THREE from "three";
 
 export interface ColorBendsHandle {
   setAudioIntensity: (value: number) => void;
+  setColors: (colors: string[]) => void;
+}
+
+function toVec3(hex: string) {
+  const h = hex.replace("#", "").trim();
+  const v =
+    h.length === 3
+      ? [
+          parseInt(h[0] + h[0], 16),
+          parseInt(h[1] + h[1], 16),
+          parseInt(h[2] + h[2], 16),
+        ]
+      : [
+          parseInt(h.slice(0, 2), 16),
+          parseInt(h.slice(2, 4), 16),
+          parseInt(h.slice(4, 6), 16),
+        ];
+  return new THREE.Vector3(v[0] / 255, v[1] / 255, v[2] / 255);
 }
 
 type ColorBendsProps = {
@@ -176,6 +194,17 @@ const ColorBends = forwardRef<ColorBendsHandle, ColorBendsProps>(function ColorB
     setAudioIntensity: (value: number) => {
       audioIntensityRef.current = value;
     },
+    setColors: (newColors: string[]) => {
+      const material = materialRef.current;
+      if (!material) return;
+      const arr = (newColors || []).filter(Boolean).slice(0, MAX_COLORS).map(toVec3);
+      for (let i = 0; i < MAX_COLORS; i++) {
+        const vec = (material.uniforms.uColors.value as THREE.Vector3[])[i];
+        if (i < arr.length) vec.copy(arr[i]);
+        else vec.set(0, 0, 0);
+      }
+      material.uniforms.uColorCount.value = arr.length;
+    },
   }));
 
   useEffect(() => {
@@ -312,23 +341,6 @@ const ColorBends = forwardRef<ColorBendsHandle, ColorBendsProps>(function ColorB
     material.uniforms.uIterations.value = iterations;
     material.uniforms.uIntensity.value = intensity;
     material.uniforms.uBandWidth.value = bandWidth;
-
-    const toVec3 = (hex: string) => {
-      const h = hex.replace("#", "").trim();
-      const v =
-        h.length === 3
-          ? [
-              parseInt(h[0] + h[0], 16),
-              parseInt(h[1] + h[1], 16),
-              parseInt(h[2] + h[2], 16),
-            ]
-          : [
-              parseInt(h.slice(0, 2), 16),
-              parseInt(h.slice(2, 4), 16),
-              parseInt(h.slice(4, 6), 16),
-            ];
-      return new THREE.Vector3(v[0] / 255, v[1] / 255, v[2] / 255);
-    };
 
     const arr = (colors || []).filter(Boolean).slice(0, MAX_COLORS).map(toVec3);
     for (let i = 0; i < MAX_COLORS; i++) {
