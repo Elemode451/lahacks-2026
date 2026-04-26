@@ -233,13 +233,14 @@ const ColorBends = forwardRef<ColorBendsHandle, ColorBendsProps>(function ColorB
     renderer.domElement.style.display = "block";
     container.appendChild(renderer.domElement);
 
-    const clock = new THREE.Clock();
+    const timer = new THREE.Timer();
 
     const handleResize = () => {
       const w = container.clientWidth || 1;
       const h = container.clientHeight || 1;
       renderer.setSize(w, h, false);
       (material.uniforms.uCanvas.value as THREE.Vector2).set(w, h);
+      renderer.render(scene, camera);
     };
 
     handleResize();
@@ -252,9 +253,10 @@ const ColorBends = forwardRef<ColorBendsHandle, ColorBendsProps>(function ColorB
       (window as Window).addEventListener("resize", handleResize);
     }
 
-    const loop = () => {
-      const dt = clock.getDelta();
-      const elapsed = clock.elapsedTime;
+    const loop = (timestamp: number) => {
+      timer.update(timestamp);
+      const dt = timer.getDelta();
+      const elapsed = timer.getElapsed();
       material.uniforms.uTime.value = elapsed;
       material.uniforms.uAudioIntensity.value = audioIntensityRef.current;
 
@@ -279,10 +281,10 @@ const ColorBends = forwardRef<ColorBendsHandle, ColorBendsProps>(function ColorB
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
       if (resizeObserverRef.current) resizeObserverRef.current.disconnect();
       else (window as Window).removeEventListener("resize", handleResize);
+      timer.dispose();
       geometry.dispose();
       material.dispose();
       renderer.dispose();
-      renderer.forceContextLoss();
       if (
         renderer.domElement &&
         renderer.domElement.parentElement === container

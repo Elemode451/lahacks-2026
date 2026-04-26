@@ -48,7 +48,7 @@ export default function ImportOverlay({ onConfirm, onClose }: ImportOverlayProps
   };
 
   const cardStyle = {
-    background: "rgba(249, 87, 56, 0.18)",
+    background: "rgba(249, 87, 56, 0.75)",
     backdropFilter: "blur(48px)",
     WebkitBackdropFilter: "blur(48px)",
     borderRadius: 100,

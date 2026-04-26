@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Seratune — Music Discovery Through Brain Response",
+  title: "Seratone — Music Discovery Through Brain Response",
   description:
     "Recommending music based on vibes and cortical overlap rather than algorithmic trends.",
 };

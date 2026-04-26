@@ -1,4 +1,4 @@
-# Seratune Design System
+# Seratone Design System
 
 ## Mission
 Music discovery through predicted brain-response similarity. Recommending music based on vibes and cortical overlap rather than algorithmic trends or metadata.
