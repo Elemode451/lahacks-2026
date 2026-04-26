@@ -14,7 +14,8 @@ function useRealBrainGeometry() {
   const [geometry, setGeometry] = useState<THREE.BufferGeometry | null>(null);
 
   useEffect(() => {
-    fetch("/brain_mesh.json")
+    const controller = new AbortController();
+    fetch("/brain_mesh.json", { signal: controller.signal })
       .then((r) => r.json())
       .then((data) => {
         const geo = new THREE.BufferGeometry();
@@ -29,7 +30,11 @@ function useRealBrainGeometry() {
         geo.computeVertexNormals();
 
         setGeometry(geo);
+      })
+      .catch((err) => {
+        if (err.name !== "AbortError") console.error("Failed to load brain mesh:", err);
       });
+    return () => controller.abort();
   }, []);
 
   return geometry;

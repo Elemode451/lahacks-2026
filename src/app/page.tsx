@@ -32,6 +32,7 @@ export default function Home() {
   const [inputValue, setInputValue] = useState("");
   const [brainFlashing, setBrainFlashing] = useState(false);
   const colorBendsRef = useRef<ColorBendsHandle>(null);
+  const analyzeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [vw, setVw] = useState(1280);
   const [vh, setVh] = useState(832);
 
@@ -79,13 +80,24 @@ export default function Home() {
     setSongs(songs.filter((_, i) => i !== index));
   };
 
+  const cancelAnalyzeTimeout = () => {
+    if (analyzeTimeoutRef.current) {
+      clearTimeout(analyzeTimeoutRef.current);
+      analyzeTimeoutRef.current = null;
+    }
+  };
+
   const handleAnalyze = () => {
+    cancelAnalyzeTimeout();
     setBrainFlashing(true);
-    setTimeout(() => {
+    analyzeTimeoutRef.current = setTimeout(() => {
+      analyzeTimeoutRef.current = null;
       setBrainFlashing(false);
       setViewState("analysis");
     }, 800);
   };
+
+  useEffect(() => () => cancelAnalyzeTimeout(), []);
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-[#fffdf5] font-sans selection:bg-[#f95738] selection:text-white">
@@ -141,7 +153,7 @@ export default function Home() {
       <div
         className="absolute top-0 z-20 flex items-center gap-4 cursor-pointer transition-opacity hover:opacity-80"
         style={{ left: layout.logoLeft, height: TOPBAR_H }}
-        onClick={() => setViewState("intro")}
+        onClick={() => { cancelAnalyzeTimeout(); setBrainFlashing(false); setViewState("intro"); }}
       >
         <div className="flex">
           <div className="bg-[#f4d35e] h-6 w-[3px]" />
@@ -191,7 +203,7 @@ export default function Home() {
       {viewState === "importing" && (
         <div
           className="absolute inset-0 z-[15]"
-          onClick={() => setViewState("intro")}
+          onClick={() => { cancelAnalyzeTimeout(); setBrainFlashing(false); setViewState("intro"); }}
         />
       )}
 
