@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 from supabase import create_client
 
 from app.config import settings
-from app.models.schemas import AuthResponse, LoginRequest, SignUpRequest
+from app.models.schemas import AuthResponse, LoginRequest, SignUpRequest, SyncProfileResponse
 from app.services.supabase_client import get_supabase_admin
+from app.utils.auth import get_user_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -89,3 +90,73 @@ async def login(req: LoginRequest):
     except Exception as e:
         logger.exception("Login error")
         raise HTTPException(401, str(e))
+
+
+@router.post("/sync-profile", response_model=SyncProfileResponse)
+async def sync_profile(authorization: str | None = Header(None)):
+    """Sync profile display name from OAuth provider metadata.
+
+    Call this from the frontend after an OAuth login (Google, Spotify, etc.)
+    to populate the profiles table with the user's provider display name.
+    If a display_name already exists it is preserved.
+    """
+    user_id = get_user_id(authorization)
+    sb = get_supabase_admin()
+
+    # Check if a display name already exists
+    existing = (
+        sb.table("profiles")
+        .select("display_name")
+        .eq("user_id", user_id)
+        .maybe_single()
+        .execute()
+    )
+    if existing.data and existing.data.get("display_name"):
+        return SyncProfileResponse(display_name=existing.data["display_name"])
+
+    # Pull name from provider metadata
+    user = sb.auth.admin.get_user_by_id(user_id)
+    display_name = ""
+    if user and user.user:
+        meta = user.user.user_metadata or {}
+        display_name = (
+            meta.get("full_name")
+            or meta.get("name")
+            or meta.get("display_name")
+            or ""
+        )
+
+    if display_name:
+        sb.table("profiles").upsert(
+            {"user_id": user_id, "display_name": display_name}
+        ).execute()
+
+    return SyncProfileResponse(display_name=display_name)
+
+
+@router.get("/me/spotify-token")
+async def get_spotify_token(authorization: str | None = Header(None)):
+    """Return the authenticated user's Spotify provider token.
+
+    Only available when the user signed in via Spotify OAuth.
+    The token can be used to call the Spotify Web API on behalf of the user
+    (e.g. to fetch their top tracks or playlists).
+    """
+    user_id = get_user_id(authorization)
+    sb = get_supabase_admin()
+
+    user = sb.auth.admin.get_user_by_id(user_id)
+    if not user or not user.user:
+        raise HTTPException(404, "User not found")
+
+    for identity in user.user.identities or []:
+        if identity.provider == "spotify":
+            identity_data = identity.identity_data or {}
+            return {
+                "provider_token": identity_data.get("provider_token"),
+                "provider_refresh_token": identity_data.get(
+                    "provider_refresh_token"
+                ),
+            }
+
+    raise HTTPException(404, "No Spotify identity linked to this account")
