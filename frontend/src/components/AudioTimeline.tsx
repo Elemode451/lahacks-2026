@@ -56,7 +56,9 @@ export default function AudioTimeline({
   const rafRef = useRef<number | null>(null);
   const lastTsRef = useRef<number | null>(null);
   const fracRef = useRef(0); // fractional accumulator for smooth playback
+  const prevRoundedRef = useRef(-1); // last reported integer segment
   const waveRef = useRef<HTMLDivElement>(null);
+  const timeRef = useRef<HTMLSpanElement>(null); // direct DOM ref for timestamp
   const dragging = useRef(false);
 
   // Store latest callback deps in a ref so the rAF loop never goes stale
@@ -73,6 +75,8 @@ export default function AudioTimeline({
 
     fracRef.current = controlled ? (currentIndex ?? 0) : localIndex;
 
+    prevRoundedRef.current = Math.round(fracRef.current);
+
     const loop = (ts: number) => {
       const { duration: dur, barCount: bc, controlled: ctrl, onSegmentChange: osc } = tickDepsRef.current;
       if (lastTsRef.current !== null) {
@@ -85,11 +89,21 @@ export default function AudioTimeline({
           setIsPlaying(false);
         }
 
+        // Update timestamp directly in DOM for smooth display
+        if (timeRef.current) {
+          const frac = bc > 1 ? fracRef.current / (bc - 1) : 0;
+          timeRef.current.textContent = fmt(Math.min(1, Math.max(0, frac)) * dur);
+        }
+
+        // Only notify parent when integer segment changes
         const rounded = Math.round(fracRef.current);
-        if (ctrl && osc) {
-          osc(rounded);
-        } else {
-          setLocalIndex(rounded);
+        if (rounded !== prevRoundedRef.current) {
+          prevRoundedRef.current = rounded;
+          if (ctrl && osc) {
+            osc(rounded);
+          } else {
+            setLocalIndex(rounded);
+          }
         }
       }
       lastTsRef.current = ts;
@@ -125,7 +139,7 @@ export default function AudioTimeline({
     <div className={`flex flex-col gap-2 w-full ${className}`}>
       {/* Label row */}
       <div className="flex items-center justify-between">
-        <span className="text-[#0d3b66]/40 text-[9px] tabular-nums font-semibold tracking-[0.06em] uppercase">
+        <span ref={timeRef} className="text-[#0d3b66]/40 text-[9px] tabular-nums font-semibold tracking-[0.06em] uppercase">
           {fmt(position * duration)}
         </span>
 
