@@ -270,34 +270,26 @@ async def spotify_oauth_callback(code: str, state: str) -> RedirectResponse:
 
         # 3. Upsert user in Supabase
         sb = get_supabase_admin()
-        supabase_token = await _upsert_spotify_user(
+        supabase_token, user_id = await _upsert_spotify_user(
             sb, spotify_email, spotify_user_id, display_name
         )
 
         # 4. Store Spotify tokens
-        user_resp = sb.auth.admin.list_users()
-        user_id: str | None = None
-        for u in user_resp:
-            if hasattr(u, "email") and u.email == spotify_email:
-                user_id = u.id
-                break
-
-        if user_id:
-            expires_in = token_data.get("expires_in", 3600)
-            expires_at = (
-                datetime.now(timezone.utc) + timedelta(seconds=expires_in)
-            ).isoformat()
-            sb.table("spotify_tokens").upsert(
-                {
-                    "user_id": user_id,
-                    "access_token": access_token,
-                    "refresh_token": refresh_token,
-                    "expires_at": expires_at,
-                    "scope": token_data.get("scope", ""),
-                    "spotify_user_id": spotify_user_id,
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
-                }
-            ).execute()
+        expires_in = token_data.get("expires_in", 3600)
+        expires_at = (
+            datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+        ).isoformat()
+        sb.table("spotify_tokens").upsert(
+            {
+                "user_id": user_id,
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "expires_at": expires_at,
+                "scope": token_data.get("scope", ""),
+                "spotify_user_id": spotify_user_id,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        ).execute()
 
         # 5. Redirect to frontend with the Supabase access token
         redirect_url = (
@@ -315,32 +307,33 @@ async def spotify_oauth_callback(code: str, state: str) -> RedirectResponse:
 
 async def _upsert_spotify_user(
     sb, email: str, spotify_user_id: str, display_name: str
-) -> str:
+) -> tuple[str, str]:
     """Find or create a Supabase user for the given Spotify account.
 
-    Returns a Supabase access token for the user.
+    Returns ``(supabase_access_token, user_id)``.
     """
-    # Check for existing user
-    existing_user = None
-    users = sb.auth.admin.list_users()
-    for u in users:
-        if hasattr(u, "email") and u.email == email:
-            existing_user = u
-            break
+    # Look up user by email via the auth.users table (avoids paginated list_users)
+    lookup = (
+        sb.table("users")
+        .select("id, raw_user_meta_data")
+        .eq("email", email)
+        .maybe_single()
+        .execute()
+    )
 
-    if existing_user:
-        # Update metadata with Spotify info
+    if lookup.data:
+        user_id = lookup.data["id"]
+        existing_meta = lookup.data.get("raw_user_meta_data") or {}
         sb.auth.admin.update_user_by_id(
-            existing_user.id,
+            user_id,
             {
                 "user_metadata": {
-                    **(existing_user.user_metadata or {}),
+                    **existing_meta,
                     "spotify_user_id": spotify_user_id,
                     "provider": "spotify",
                 }
             },
         )
-        user_id = existing_user.id
     else:
         # Create new user with a random password (OAuth-only account)
         random_password = secrets.token_urlsafe(32)
@@ -387,7 +380,7 @@ async def _upsert_spotify_user(
                 }
             )
             if verify_resp.session:
-                return verify_resp.session.access_token
+                return verify_resp.session.access_token, user_id
         except Exception:
             logger.exception("OTP verification failed, falling back to generate_link")
 
@@ -399,7 +392,7 @@ async def _upsert_spotify_user(
         # Extract the token from the action link
         if "token=" in action_link:
             token = action_link.split("token=")[1].split("&")[0]
-            return token
+            return token, user_id
 
     raise HTTPException(500, "Failed to generate authentication session")
 
