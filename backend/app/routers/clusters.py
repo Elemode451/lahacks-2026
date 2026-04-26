@@ -8,7 +8,7 @@ import logging
 import uuid
 
 from fastapi import APIRouter, HTTPException, Header, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from app.models.schemas import (
     ClusterAnalyzeRequest,
@@ -312,9 +312,12 @@ async def batch_events(batch_id: str, request: Request):
 
     q: asyncio.Queue = batch["events"]
 
+    # If the batch is already done and all events consumed, return 204
+    # so EventSource treats it as a fatal error and stops reconnecting.
+    if batch["done"] and q.empty():
+        return Response(status_code=204)
+
     async def event_stream():
-        if batch["done"] and q.empty():
-            return
         while True:
             try:
                 event = await asyncio.wait_for(q.get(), timeout=30.0)

@@ -160,16 +160,20 @@ async def _submit_and_poll(audio_path: Path) -> dict:
 
     worker = settings.tribe_worker_url
 
+    # Read file into memory so the shielded task doesn't depend on the
+    # file still existing on disk (callers may clean up the path).
+    audio_bytes = await asyncio.to_thread(audio_path.read_bytes)
+    file_name = audio_path.name
+
     # ── Submit ──────────────────────────────────────────────────────────
     last_err: Exception | None = None
     for attempt in range(1, _SUBMIT_RETRIES + 1):
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
-                with open(audio_path, "rb") as f:
-                    resp = await client.post(
-                        f"{worker}/submit",
-                        files={"audio": (audio_path.name, f, "audio/wav")},
-                    )
+                resp = await client.post(
+                    f"{worker}/submit",
+                    files={"audio": (file_name, audio_bytes, "audio/wav")},
+                )
 
                 resp.raise_for_status()
                 job_id = resp.json()["job_id"]
