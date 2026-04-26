@@ -59,13 +59,13 @@ export default function SongRecommendations({
     }
 
     // Advance to next song or refresh if at the end
-    if (currentIndex < recommendations.length - 1) {
-      setCurrentIndex((i) => i + 1);
+    if (safeIndex < recommendations.length - 1) {
+      setCurrentIndex(safeIndex + 1);
     } else {
-      setCurrentIndex((i) => i + 1);
+      setCurrentIndex(0);
       onRefresh?.();
     }
-  }, [currentSong, currentIndex, recommendations.length, onSongClick, onRefresh, onRequestCollaborative]);
+  }, [currentSong, safeIndex, recommendations.length, onSongClick, onRefresh, onRequestCollaborative]);
 
   const handleSkip = useCallback(() => {
     clickCountRef.current += 1;
@@ -74,13 +74,13 @@ export default function SongRecommendations({
       onRequestCollaborative();
     }
 
-    if (currentIndex < recommendations.length - 1) {
-      setCurrentIndex((i) => i + 1);
+    if (safeIndex < recommendations.length - 1) {
+      setCurrentIndex(safeIndex + 1);
     } else {
-      setCurrentIndex((i) => i + 1);
+      setCurrentIndex(0);
       onRefresh?.();
     }
-  }, [currentIndex, recommendations.length, onRefresh, onRequestCollaborative]);
+  }, [safeIndex, recommendations.length, onRefresh, onRequestCollaborative]);
 
   return (
     <div className={`flex flex-col ${className}`}>
