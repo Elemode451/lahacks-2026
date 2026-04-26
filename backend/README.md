@@ -45,6 +45,7 @@ API docs at http://localhost:8000/docs
 | GET | `/spotify/search?q=...` | No | Search Spotify |
 | POST | `/creator/analyze` | No | Upload + analyze a track (creator mode) |
 | POST | `/clusters/analyze` | Optional | Analyze a song cluster (listener mode); tracks user interactions when authenticated |
+| POST | `/clusters/analyze/stream` | Optional | Same as above but streams per-song progress via SSE |
 | POST | `/recommendations/similar` | Optional | Brain-region cosine similarity recommendations; with auth can exclude previously recommended songs |
 | POST | `/recommendations/collaborative` | Required | "Users like you also like" — collaborative filtering |
 | GET | `/recommendations/history` | Required | Previously recommended songs for the user |

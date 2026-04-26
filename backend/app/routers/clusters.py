@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, HTTPException, Header, Request
+from fastapi.responses import StreamingResponse
 
 from app.models.schemas import (
     ClusterAnalyzeRequest,
@@ -258,3 +260,261 @@ async def analyze_cluster(
     finally:
         for p in audio_paths:
             cleanup_audio(p)
+
+
+# ── SSE streaming endpoint ──────────────────────────────────────────────────
+
+
+def _sse_event(event: str, data: dict) -> str:
+    """Format a Server-Sent Event."""
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+@router.post("/analyze/stream")
+async def analyze_cluster_stream(
+    req: ClusterAnalyzeRequest,
+    request: Request,
+    authorization: str | None = Header(None),
+):
+    """Stream analysis progress via Server-Sent Events.
+
+    Same logic as POST /analyze, but sends per-song progress events
+    so the frontend can show real-time updates instead of waiting for
+    the full batch to complete.
+
+    ## SSE Events
+
+    | Event | Data | Description |
+    |-------|------|-------------|
+    | `progress` | `{song, index, total, status}` | Per-song status update |
+    | `song_complete` | `{song, index, total, cached}` | Song finished processing |
+    | `song_error` | `{song, index, total, error}` | Song failed |
+    | `complete` | Full ClusterAnalyzeResponse JSON | All songs done |
+    | `error` | `{message}` | Fatal error |
+
+    ## Frontend Usage
+
+    ```js
+    const eventSource = new EventSource('/clusters/analyze/stream', {
+      method: 'POST',  // Use fetch + ReadableStream for POST
+    });
+    // Or with fetch:
+    const resp = await fetch('/clusters/analyze/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody),
+    });
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    // Parse SSE events from the stream
+    ```
+    """
+
+    async def event_generator():
+        # Resolve songs (same as non-streaming)
+        all_cluster_songs = list(req.songs)
+        if req.spotify_playlist_url:
+            playlist_id = parse_playlist_id(req.spotify_playlist_url)
+            if not playlist_id:
+                yield _sse_event("error", {"message": "Could not parse Spotify playlist URL"})
+                return
+
+            playlist_tracks = await get_playlist_tracks(playlist_id)
+            if not playlist_tracks:
+                yield _sse_event("error", {"message": "Playlist is empty or could not be fetched"})
+                return
+
+            for track in playlist_tracks:
+                all_cluster_songs.append(
+                    ClusterSong(
+                        spotify_id=track.spotify_id,
+                        title=track.title,
+                        artist=track.artist,
+                    )
+                )
+            yield _sse_event("progress", {
+                "message": f"Resolved playlist: {len(playlist_tracks)} tracks",
+                "total": len(all_cluster_songs),
+            })
+
+        if not all_cluster_songs:
+            yield _sse_event("error", {"message": "No songs to analyze"})
+            return
+
+        total = len(all_cluster_songs)
+        songs: list[SongInfo] = []
+        fingerprints: list[SongFingerprints] = []
+        audio_paths: list = []
+        user_id = _try_get_user_id(authorization)
+
+        for idx, cluster_song in enumerate(all_cluster_songs):
+            # Check if client disconnected
+            if await request.is_disconnected():
+                logger.info("Client disconnected, stopping stream")
+                return
+
+            title = cluster_song.title or "Unknown"
+            artist = cluster_song.artist or "Unknown"
+
+            yield _sse_event("progress", {
+                "song": f"{artist} - {title}",
+                "index": idx + 1,
+                "total": total,
+                "status": "starting",
+            })
+
+            try:
+                youtube_url = cluster_song.youtube_url
+
+                if cluster_song.spotify_id:
+                    info = await get_track_info(cluster_song.spotify_id)
+                    if info:
+                        title = info.title
+                        artist = info.artist
+                    if not youtube_url:
+                        youtube_url = await search_youtube_for_track(title, artist)
+
+                if not youtube_url:
+                    yield _sse_event("song_error", {
+                        "song": f"{artist} - {title}",
+                        "index": idx + 1,
+                        "total": total,
+                        "error": "No audio source found",
+                    })
+                    continue
+
+                cache_key = make_lookup_key(
+                    youtube_url=youtube_url,
+                    spotify_id=cluster_song.spotify_id,
+                )
+
+                song_fp = None
+                cached = False
+                if cache_key and not settings.use_mock_tribe:
+                    song_fp = await asyncio.to_thread(get_cached, cache_key)
+                    if song_fp:
+                        cached = True
+
+                if song_fp is None:
+                    yield _sse_event("progress", {
+                        "song": f"{artist} - {title}",
+                        "index": idx + 1,
+                        "total": total,
+                        "status": "downloading",
+                    })
+                    audio_path = await asyncio.to_thread(
+                        download_youtube_audio, youtube_url
+                    )
+                    audio_paths.append(audio_path)
+
+                    yield _sse_event("progress", {
+                        "song": f"{artist} - {title}",
+                        "index": idx + 1,
+                        "total": total,
+                        "status": "analyzing",
+                    })
+                    song_fp = await analyze_audio(
+                        audio_path,
+                        cache_key=cache_key,
+                        title=title,
+                        artist=artist,
+                    )
+
+                song_id = f"song_{uuid.uuid4().hex[:12]}"
+                song_info = SongInfo(
+                    song_id=song_id,
+                    spotify_id=cluster_song.spotify_id,
+                    title=title,
+                    artist=artist,
+                )
+                songs.append(song_info)
+                fingerprints.append(song_fp)
+
+                if user_id and cache_key:
+                    asyncio.get_event_loop().run_in_executor(
+                        None, record_user_interaction, user_id, cache_key,
+                    )
+
+                yield _sse_event("song_complete", {
+                    "song": f"{artist} - {title}",
+                    "index": idx + 1,
+                    "total": total,
+                    "cached": cached,
+                })
+
+            except Exception as exc:
+                logger.exception("Failed to process song: %s", cluster_song.model_dump())
+                yield _sse_event("song_error", {
+                    "song": f"{artist} - {title}",
+                    "index": idx + 1,
+                    "total": total,
+                    "error": str(exc),
+                })
+                continue
+
+        # ── Build final response ────────────────────────────────────────
+        if not songs:
+            yield _sse_event("error", {"message": "Could not process any songs"})
+            for p in audio_paths:
+                cleanup_audio(p)
+            return
+
+        try:
+            combined = aggregate_fingerprints(fingerprints)
+            combined_fp_b64 = encode_fingerprint_b64(combined.global_fingerprint)
+            temporal_resampled = resample_sequence(combined.temporal_fingerprints)
+            temporal_b64 = encode_temporal_b64(temporal_resampled)
+            vibe = describe_vibe(combined.region_scores)
+
+            pairwise: list[PairwiseSimilarity] = []
+            if 1 < len(songs) <= 20:
+                for i in range(len(songs)):
+                    for j in range(i + 1, len(songs)):
+                        components = compare_songs(fingerprints[i], fingerprints[j])
+                        score = final_similarity(components)
+                        pairwise.append(
+                            PairwiseSimilarity(
+                                song_a=songs[i].song_id,
+                                song_b=songs[j].song_id,
+                                similarity=score,
+                                components=components,
+                            )
+                        )
+
+            n = len(songs)
+            summary = f"Analyzed {n} song{'s' if n > 1 else ''}"
+            if n > 1 and pairwise:
+                avg_sim = sum(p.similarity for p in pairwise) / len(pairwise)
+                summary += f" with average pairwise similarity of {avg_sim:.2f}"
+            summary += f". {vibe}"
+
+            analysis_id = f"analysis_{uuid.uuid4().hex[:12]}"
+
+            response = ClusterAnalyzeResponse(
+                analysis_id=analysis_id,
+                songs=songs,
+                combined_fingerprint_b64=combined_fp_b64,
+                temporal_fingerprints_b64=temporal_b64,
+                combined_region_scores=combined.region_scores,
+                combined_timeline=combined.timeline_region_scores,
+                peak_segment=combined.peak_index,
+                vibe_description=vibe,
+                pairwise_similarities=pairwise,
+                summary=summary,
+            )
+
+            yield _sse_event("complete", response.model_dump())
+
+        finally:
+            for p in audio_paths:
+                cleanup_audio(p)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

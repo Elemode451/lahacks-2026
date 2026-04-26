@@ -139,6 +139,99 @@ def derive_fingerprints(preds: np.ndarray) -> SongFingerprints:
     )
 
 
+_POLL_INTERVAL_S = 5       # seconds between /status polls
+_POLL_TIMEOUT_S = 600      # max wait for a single job
+_SUBMIT_RETRIES = 3        # retry /submit on transient errors
+
+
+async def _submit_and_poll(audio_path: Path) -> dict:
+    """Submit audio to the async worker, poll /status until done.
+
+    Uses POST /submit (returns immediately) + GET /status/{job_id}
+    to avoid Cloudflare's 100-second proxy timeout on free tunnels.
+    Falls back to the legacy POST /analyze if /submit returns 404
+    (old worker without async support).
+    """
+    import asyncio
+    import httpx
+
+    worker = settings.tribe_worker_url
+
+    # ── Submit ──────────────────────────────────────────────────────────
+    last_err: Exception | None = None
+    for attempt in range(1, _SUBMIT_RETRIES + 1):
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                with open(audio_path, "rb") as f:
+                    resp = await client.post(
+                        f"{worker}/submit",
+                        files={"audio": (audio_path.name, f, "audio/wav")},
+                    )
+
+                if resp.status_code == 404:
+                    # Worker doesn't have /submit — fall back to sync /analyze
+                    logger.info("Worker has no /submit, falling back to /analyze")
+                    return await _analyze_sync(audio_path)
+
+                resp.raise_for_status()
+                job_id = resp.json()["job_id"]
+                logger.info("Job submitted: %s (attempt %d)", job_id, attempt)
+                break
+        except httpx.HTTPStatusError as exc:
+            last_err = exc
+            if exc.response.status_code in (502, 503, 524):
+                logger.warning("Submit attempt %d failed (%s), retrying...", attempt, exc.response.status_code)
+                await asyncio.sleep(2 * attempt)
+                continue
+            raise
+        except (httpx.ConnectError, httpx.ReadTimeout) as exc:
+            last_err = exc
+            logger.warning("Submit attempt %d failed (%s), retrying...", attempt, type(exc).__name__)
+            await asyncio.sleep(2 * attempt)
+            continue
+    else:
+        raise RuntimeError(f"Failed to submit job after {_SUBMIT_RETRIES} attempts: {last_err}")
+
+    # ── Poll ────────────────────────────────────────────────────────────
+    deadline = asyncio.get_event_loop().time() + _POLL_TIMEOUT_S
+    while asyncio.get_event_loop().time() < deadline:
+        await asyncio.sleep(_POLL_INTERVAL_S)
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.get(f"{worker}/status/{job_id}")
+                resp.raise_for_status()
+                data = resp.json()
+
+            status = data.get("status")
+            if status == "completed":
+                logger.info("Job %s completed", job_id)
+                return data["result"]
+            elif status == "failed":
+                raise RuntimeError(f"Worker inference failed: {data.get('error')}")
+            else:
+                pos = data.get("queue_position", "?")
+                logger.debug("Job %s status=%s queue_pos=%s", job_id, status, pos)
+        except (httpx.ConnectError, httpx.ReadTimeout, httpx.HTTPStatusError) as exc:
+            # Transient network error during poll — keep trying
+            logger.warning("Poll error for job %s: %s", job_id, exc)
+
+    raise TimeoutError(f"Job {job_id} did not complete within {_POLL_TIMEOUT_S}s")
+
+
+async def _analyze_sync(audio_path: Path) -> dict:
+    """Legacy synchronous call to POST /analyze (may timeout on Cloudflare)."""
+    import httpx
+
+    async with httpx.AsyncClient(timeout=600.0) as client:
+        with open(audio_path, "rb") as f:
+            resp = await client.post(
+                f"{settings.tribe_worker_url}/analyze",
+                files={"audio": (audio_path.name, f, "audio/wav")},
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+
 async def analyze_audio(
     audio_path: Path,
     *,
@@ -153,7 +246,8 @@ async def analyze_audio(
     cache before calling this function.
 
     In mock mode, generates structured fake data.
-    In real mode, calls the TRIBE inference worker.
+    In real mode, submits to the async worker queue and polls for results
+    (avoids Cloudflare tunnel timeouts).
     """
     import asyncio
 
@@ -164,17 +258,8 @@ async def analyze_audio(
         preds = _mock_preds(seed=str(audio_path))
         return derive_fingerprints(preds)
 
-    # Real TRIBE worker call
-    import httpx
-
-    async with httpx.AsyncClient(timeout=600.0) as client:
-        with open(audio_path, "rb") as f:
-            resp = await client.post(
-                f"{settings.tribe_worker_url}/analyze",
-                files={"audio": (audio_path.name, f, "audio/wav")},
-            )
-            resp.raise_for_status()
-            data = resp.json()
+    # Async submit + poll (or sync fallback for old workers)
+    data = await _submit_and_poll(audio_path)
 
     if "preds_b64gz" in data:
         compressed = base64.b64decode(data["preds_b64gz"])
