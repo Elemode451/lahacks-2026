@@ -211,14 +211,14 @@ export default function Home() {
       <AnimatePresence>
         {viewState !== "analysis" && (
           <motion.div
-            className="absolute bg-[rgba(249,87,56,0.15)] overflow-hidden z-20 shadow-sm backdrop-blur-[24px]"
+            className="absolute bg-[rgba(249,87,56,0.2)] overflow-hidden z-20 shadow-sm backdrop-blur-[24px]"
             initial={false}
             animate={{
               width: viewState === "intro" ? layout.pillW : layout.panelW,
               height: viewState === "intro" ? layout.pillH : layout.panelH,
               x: viewState === "intro" ? layout.pillX : layout.panelX,
               y: viewState === "intro" ? layout.pillY : layout.panelY,
-              borderRadius: viewState === "intro" ? 100 : 40,
+              borderRadius: viewState === "intro" ? 100 : 50,
               opacity: 1,
               scale: 1,
             }}
@@ -249,38 +249,38 @@ export default function Home() {
             ) : (
               <motion.div
                 className="absolute flex flex-col"
-                style={{ top: 52, left: 64, right: 64, bottom: 48 }}
+                style={{ top: "7.4%", left: "8.7%", right: "8.9%", bottom: "7.2%" }}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.2, duration: 0.3 }}
               >
                 {/* Header: "import:" left, icon tabs right */}
-                <div className="flex justify-between items-center mb-10">
-                  <h2 className="font-medium text-[#f95738] text-2xl tracking-[-0.96px]">import:</h2>
-                  <div className="flex gap-10 text-[#f95738] items-center">
+                <div className="flex justify-between items-start">
+                  <h2 className="font-medium text-[#f95738] text-[clamp(24px,2.8vw,36px)] tracking-[-1.44px] leading-none">import:</h2>
+                  <div className="flex gap-[clamp(16px,2.3vw,30px)] text-[#f95738] items-center">
                     <button
-                      className={`transition-all duration-200 cursor-pointer p-2.5 ${importType === "file" ? "opacity-100 scale-110" : "opacity-50 hover:opacity-80"}`}
+                      className={`transition-all duration-200 cursor-pointer p-1 ${importType === "file" ? "opacity-100 scale-110" : "opacity-40 hover:opacity-70"}`}
                       onClick={() => setImportType("file")}
                     >
-                      <FileIcon className="w-[26px] h-[30px]" />
+                      <FileIcon className="w-[clamp(28px,3.1vw,40px)] h-[clamp(32px,3.6vw,46px)]" />
                     </button>
                     <button
-                      className={`transition-all duration-200 cursor-pointer p-2.5 ${importType === "spotify" ? "opacity-100 scale-110" : "opacity-50 hover:opacity-80"}`}
+                      className={`transition-all duration-200 cursor-pointer p-1 ${importType === "spotify" ? "opacity-100 scale-110" : "opacity-40 hover:opacity-70"}`}
                       onClick={() => setImportType("spotify")}
                     >
-                      <SpotifyIcon className="w-[30px] h-[30px]" />
+                      <SpotifyIcon className="w-[clamp(30px,3.5vw,45px)] h-[clamp(30px,3.5vw,45px)]" />
                     </button>
                     <button
-                      className={`transition-all duration-200 cursor-pointer p-2.5 ${importType === "youtube" ? "opacity-100 scale-110" : "opacity-50 hover:opacity-80"}`}
+                      className={`transition-all duration-200 cursor-pointer p-1 ${importType === "youtube" ? "opacity-100 scale-110" : "opacity-40 hover:opacity-70"}`}
                       onClick={() => setImportType("youtube")}
                     >
-                      <YouTubeIcon className="w-[34px] h-[24px]" />
+                      <YouTubeIcon className="w-[clamp(34px,4vw,51px)] h-[clamp(24px,2.8vw,36px)]" />
                     </button>
                   </div>
                 </div>
 
-                {/* Content area */}
-                <div className="flex-1 min-h-0 relative flex flex-col">
+                {/* Content area — large gap below header matching figma */}
+                <div className="flex-1 min-h-0 relative flex flex-col" style={{ marginTop: "clamp(24px, 7.4%, 48px)" }}>
                   <AnimatePresence mode="wait">
                     {importType === "file" ? (
                       <motion.div
@@ -289,12 +289,12 @@ export default function Home() {
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: 0.98 }}
                         transition={{ duration: 0.2 }}
-                        className="relative z-10 w-full flex-1 p-10 flex flex-col items-center justify-center text-[#f95738]"
+                        className="relative z-10 w-full flex-1 flex flex-col items-center justify-center text-[#f95738]"
                       >
-                        <div className="absolute inset-0 rounded-[30px] border-4 border-[#f95738] border-dashed pointer-events-none opacity-50" />
-                        <UploadIcon className="size-10 mb-4" />
-                        <p className="text-base font-medium tracking-tight">Drag and drop files here</p>
-                        <p className="text-sm mt-2">or click to browse</p>
+                        <div className="absolute inset-0 rounded-[50px] border-4 border-[#f95738] border-dashed pointer-events-none opacity-50" />
+                        <UploadIcon className="w-[clamp(32px,3.9vw,50px)] h-[clamp(32px,3.9vw,50px)] mb-5" />
+                        <p className="text-[clamp(14px,1.25vw,18px)] font-medium tracking-tight">Drag and drop files here</p>
+                        <p className="text-[clamp(12px,1vw,14px)] mt-2 opacity-70">or click to browse</p>
                       </motion.div>
                     ) : (
                       <motion.div
@@ -305,7 +305,7 @@ export default function Home() {
                         transition={{ duration: 0.2 }}
                         className="relative z-10 w-full flex-1 min-h-0 flex flex-col"
                       >
-                        <form onSubmit={handleAddSong} className="w-full max-w-xl mx-auto mt-2">
+                        <form onSubmit={handleAddSong} className="w-full max-w-xl mx-auto">
                           <div className="relative flex items-center">
                             <input
                               type="text"
@@ -316,19 +316,19 @@ export default function Home() {
                                   ? "Paste Spotify track/playlist link..."
                                   : "Paste YouTube video URL..."
                               }
-                              className="w-full bg-[rgba(249,87,56,0.1)] border-2 border-[rgba(249,87,56,0.3)] focus:border-[#f95738] rounded-full py-3 px-6 text-[#f95738] placeholder-[#f95738] outline-none text-base transition-colors"
+                              className="w-full bg-[rgba(249,87,56,0.08)] border-2 border-[rgba(249,87,56,0.25)] focus:border-[#f95738] rounded-full py-3.5 px-7 text-[#f95738] placeholder-[rgba(249,87,56,0.5)] outline-none text-[clamp(13px,1.1vw,16px)] transition-colors"
                             />
                             <button
                               type="submit"
-                              className="absolute right-2.5 bg-[#f95738] text-white w-9 h-9 rounded-full hover:bg-[#d84b31] transition-colors flex items-center justify-center"
+                              className="absolute right-3 bg-[#f95738] text-white w-10 h-10 rounded-full hover:bg-[#d84b31] transition-colors flex items-center justify-center"
                             >
-                              <Send className="size-4 text-white relative right-px top-px" />
+                              <Send className="size-4 text-white" />
                             </button>
                           </div>
                         </form>
 
                         <div className="flex-1 overflow-y-auto mt-6 w-full custom-scrollbar flex flex-col items-center">
-                          <div className="w-full max-w-xl h-full pb-6">
+                          <div className="w-full max-w-xl h-full pb-4">
                             <AnimatePresence>
                               {songs.length === 0 ? (
                                 <motion.div
@@ -336,8 +336,8 @@ export default function Home() {
                                   animate={{ opacity: 1 }}
                                   className="h-full flex flex-col items-center justify-center text-[#f95738]"
                                 >
-                                  <p className="text-base font-medium tracking-tight">List is empty</p>
-                                  <p className="text-sm mt-2 text-center max-w-xs">
+                                  <p className="text-[clamp(14px,1.25vw,18px)] font-medium tracking-tight opacity-60">List is empty</p>
+                                  <p className="text-[clamp(12px,1vw,14px)] mt-2 text-center max-w-xs opacity-40">
                                     {importType === "spotify" && "Add Spotify links to begin analysis"}
                                     {importType === "youtube" && "Add YouTube video links to begin analysis"}
                                   </p>
@@ -350,14 +350,14 @@ export default function Home() {
                                       initial={{ opacity: 0, y: 10 }}
                                       animate={{ opacity: 1, y: 0 }}
                                       exit={{ opacity: 0, scale: 0.95 }}
-                                      className="bg-[rgba(249,87,56,0.15)] rounded-xl py-4 px-6 flex items-center justify-between group w-full"
+                                      className="bg-[rgba(249,87,56,0.12)] rounded-2xl py-4 px-6 flex items-center justify-between group w-full"
                                     >
-                                      <span className="text-[#f95738] font-medium truncate pr-4 text-base">
+                                      <span className="text-[#f95738] font-medium truncate pr-4 text-[clamp(13px,1.1vw,16px)]">
                                         {song}
                                       </span>
                                       <button
                                         onClick={() => handleRemoveSong(idx)}
-                                        className="text-[#f95738] hover:text-[#d84b31] transition-colors p-1.5 -mr-1"
+                                        className="text-[#f95738] hover:text-[#d84b31] transition-colors p-2 -mr-1"
                                       >
                                         <X className="size-4" />
                                       </button>
@@ -373,14 +373,15 @@ export default function Home() {
                   </AnimatePresence>
                 </div>
 
-                {/* Bottom: song count + analyze button */}
-                <div className="mt-8 flex justify-between items-center shrink-0">
-                  <div className="text-[#f95738] font-medium text-lg tracking-tight">
+                {/* Bottom: song count left + analyze pill right */}
+                <div className="flex justify-between items-center shrink-0" style={{ marginTop: "clamp(12px, 3%, 24px)" }}>
+                  <span className="text-[#f95738] font-medium text-[clamp(14px,1.4vw,20px)] tracking-[-0.8px] opacity-70">
                     {songs.length} {songs.length === 1 ? "song" : "songs"} added
-                  </div>
+                  </span>
                   <button
                     onClick={handleAnalyze}
-                    className="bg-[rgba(249,87,56,0.2)] hover:bg-[rgba(249,87,56,0.3)] transition-colors text-[#f95738] font-medium text-xl tracking-[-0.8px] py-3 px-10 rounded-full shadow-sm backdrop-blur-[16px] cursor-pointer"
+                    className="bg-[rgba(249,87,56,0.5)] hover:bg-[rgba(249,87,56,0.65)] transition-colors text-[#f95738] font-medium text-[clamp(20px,2.8vw,36px)] tracking-[-1.44px] rounded-[50px] cursor-pointer"
+                    style={{ padding: "clamp(10px, 1.8vh, 18px) clamp(28px, 4vw, 52px)" }}
                   >
                     analyze
                   </button>
