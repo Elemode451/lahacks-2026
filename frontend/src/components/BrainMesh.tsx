@@ -87,6 +87,7 @@ export default function BrainMesh({
   const meshRef = useRef<THREE.Mesh>(null);
   const materialRef = useRef<THREE.MeshStandardMaterial>(null);
   const flashStartRef = useRef<number | null>(null);
+  const originalColorsRef = useRef<Float32Array | null>(null);
 
   const geometry = useRealBrainGeometry();
 
@@ -123,12 +124,19 @@ export default function BrainMesh({
     }
   }, [fingerprint, geometry]);
 
-  // Apply fingerprint colors to geometry
+  // Apply fingerprint colors to geometry, restore originals on clear
   useEffect(() => {
-    if (!geometry || !fingerprintColors) return;
+    if (!geometry) return;
     const colorAttr = geometry.getAttribute("color");
-    if (colorAttr instanceof THREE.BufferAttribute) {
+    if (!(colorAttr instanceof THREE.BufferAttribute)) return;
+    if (fingerprintColors) {
+      if (!originalColorsRef.current) {
+        originalColorsRef.current = new Float32Array(colorAttr.array);
+      }
       colorAttr.array.set(fingerprintColors);
+      colorAttr.needsUpdate = true;
+    } else if (originalColorsRef.current) {
+      colorAttr.array.set(originalColorsRef.current);
       colorAttr.needsUpdate = true;
     }
   }, [geometry, fingerprintColors]);
