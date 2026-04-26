@@ -37,13 +37,13 @@ export default function EmotionalProfile({
 
   const dominant = new Set(emotionalProfile.dominant_emotions ?? []);
   const displayed = emotionalProfile.emotions.filter(
-    (e) => e.level === "high" || e.level === "medium" || dominant.has(e.name),
+    (emotion) => emotion.level === "high" || emotion.level === "medium" || dominant.has(emotion.name),
   );
   const seen = new Map<string, Emotion>();
-  for (const e of displayed) {
-    const existing = seen.get(e.name);
-    if (!existing || e.intensity > existing.intensity) {
-      seen.set(e.name, e);
+  for (const emotion of displayed) {
+    const existing = seen.get(emotion.name);
+    if (!existing || emotion.intensity > existing.intensity) {
+      seen.set(emotion.name, emotion);
     }
   }
   const unique = Array.from(seen.values());
@@ -60,7 +60,6 @@ export default function EmotionalProfile({
         <h3 className="section-header">Emotional Response</h3>
       </div>
 
-      {/* Emotion pills */}
       <div className="flex flex-wrap gap-1.5 mb-3">
         {unique.slice(0, 8).map((emotion) => {
           const colors = INTENSITY_COLORS[emotion.level] ?? INTENSITY_COLORS.low;
@@ -87,7 +86,6 @@ export default function EmotionalProfile({
         })}
       </div>
 
-      {/* Summary text */}
       {emotionalProfile.summary && (
         <p
           className="text-[#0d3b66]/50 leading-relaxed"

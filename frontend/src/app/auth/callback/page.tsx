@@ -23,7 +23,6 @@ function CallbackHandler() {
       return;
     }
 
-    // For implicit grant (hash fragment) — listen for auth state change
     const { data: { subscription } } = sb.auth.onAuthStateChange((event, session) => {
       if (event === "SIGNED_IN" && session) {
         subscription.unsubscribe();
@@ -31,7 +30,6 @@ function CallbackHandler() {
       }
     });
 
-    // Also check if session already exists (hash already processed)
     sb.auth.getSession().then(({ data: { session } }) => {
       if (session) {
         subscription.unsubscribe();
@@ -39,7 +37,6 @@ function CallbackHandler() {
       }
     });
 
-    // Timeout fallback — if nothing happens in 5s, redirect to login
     const timeout = setTimeout(() => {
       subscription.unsubscribe();
       router.replace("/login");
@@ -52,24 +49,18 @@ function CallbackHandler() {
   }, [router, searchParams]);
 
   return (
-    <div className="h-full flex items-center justify-center bg-[#0a0a12]">
-      <div className="flex flex-col items-center gap-4">
-        <div className="w-6 h-6 border-2 border-[#f95738] border-t-transparent rounded-full animate-spin" />
-        <p className="text-white/50 text-sm">Completing sign in...</p>
-      </div>
+    <div className="h-full flex items-center justify-center">
+      <div
+        className="w-6 h-6 border-2 rounded-full animate-spin"
+        style={{ borderColor: "rgba(249,87,56,0.3)", borderTopColor: "#f95738" }}
+      />
     </div>
   );
 }
 
 export default function AuthCallbackPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="h-full flex items-center justify-center bg-[#0a0a12]">
-          <div className="w-6 h-6 border-2 border-[#f95738] border-t-transparent rounded-full animate-spin" />
-        </div>
-      }
-    >
+    <Suspense fallback={<div className="h-full" />}>
       <CallbackHandler />
     </Suspense>
   );
