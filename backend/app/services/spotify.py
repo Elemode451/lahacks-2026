@@ -134,68 +134,106 @@ async def _scrape_playlist_tracks(
     Spotify OAuth (user login) is implemented.
     See get_playlist_tracks() docstring for details.
     """
+    import json
     import re
 
-    # Step 1: Scrape the public playlist page for track IDs (no auth needed)
-    # Try the embed page first (less likely to 403), then the regular page
-    track_ids: list[str] = []
-    for page_url in [
-        f"https://open.spotify.com/embed/playlist/{playlist_id}",
-        f"https://open.spotify.com/playlist/{playlist_id}",
-    ]:
-        try:
-            resp = await client.get(
-                page_url,
-                headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                },
-                follow_redirects=True,
-            )
-            if resp.status_code == 403:
-                logger.warning("Got 403 from %s, trying next source", page_url)
-                continue
-            resp.raise_for_status()
-            html = resp.text
-            track_ids = list(dict.fromkeys(
-                re.findall(r'(?:spotify:track:|/track/)([a-zA-Z0-9]{22})', html)
-            ))
-            if track_ids:
-                break
-        except Exception:
-            logger.warning("Failed to fetch playlist page %s", page_url)
-            continue
-    logger.info("Scraped %d track IDs from playlist page %s", len(track_ids), playlist_id)
-
-    if not track_ids:
-        return []
-
-    # Step 2: Batch-fetch track metadata (Spotify allows up to 50 IDs per request)
-    token = await _get_token()
+    # Step 1: Scrape the embed page — it contains full track metadata in JSON
     results: list[SpotifySearchResult] = []
-    for i in range(0, len(track_ids), 50):
-        batch = track_ids[i:i + 50]
-        ids_param = ",".join(batch)
-        try:
-            resp = await client.get(
-                f"https://api.spotify.com/v1/tracks?ids={ids_param}",
-                headers={"Authorization": f"Bearer {token}"},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            for track in data.get("tracks", []):
-                if track:
-                    artists = ", ".join(a["name"] for a in track.get("artists", []))
-                    images = track.get("album", {}).get("images", [])
-                    results.append(SpotifySearchResult(
-                        spotify_id=track["id"],
-                        title=track["name"],
-                        artist=artists,
-                        album=track.get("album", {}).get("name"),
-                        album_art_url=images[0]["url"] if images else None,
-                        preview_url=track.get("preview_url"),
-                    ))
-        except Exception:
-            logger.warning("Batch track fetch failed for %d IDs", len(batch))
+    embed_url = f"https://open.spotify.com/embed/playlist/{playlist_id}"
+    try:
+        resp = await client.get(
+            embed_url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            },
+            follow_redirects=True,
+        )
+        if resp.status_code == 200:
+            html = resp.text
+            # Extract __NEXT_DATA__ JSON from the embed page
+            for script_body in re.findall(r"<script[^>]*>(.*?)</script>", html, re.DOTALL):
+                if len(script_body) < 500 or '"trackList"' not in script_body:
+                    continue
+                try:
+                    page_data = json.loads(script_body)
+                    track_list = (
+                        page_data.get("props", {})
+                        .get("pageProps", {})
+                        .get("state", {})
+                        .get("data", {})
+                        .get("entity", {})
+                        .get("trackList", [])
+                    )
+                    for track in track_list:
+                        uri = track.get("uri", "")
+                        tid_match = re.search(r"spotify:track:([a-zA-Z0-9]+)", uri)
+                        if not tid_match:
+                            continue
+                        preview = track.get("audioPreview") or {}
+                        results.append(SpotifySearchResult(
+                            spotify_id=tid_match.group(1),
+                            title=track.get("title", "Unknown"),
+                            artist=track.get("subtitle", "Unknown"),
+                            album=None,
+                            album_art_url=None,
+                            preview_url=preview.get("url"),
+                        ))
+                    break
+                except (json.JSONDecodeError, KeyError):
+                    continue
+    except Exception:
+        logger.warning("Failed to fetch embed page %s", embed_url)
+
+    # Fallback: if embed JSON parsing failed, try regex scraping + API batch fetch
+    if not results:
+        track_ids: list[str] = []
+        for page_url in [embed_url, f"https://open.spotify.com/playlist/{playlist_id}"]:
+            try:
+                resp = await client.get(
+                    page_url,
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    },
+                    follow_redirects=True,
+                )
+                if resp.status_code == 403:
+                    continue
+                resp.raise_for_status()
+                track_ids = list(dict.fromkeys(
+                    re.findall(r"(?:spotify:track:|/track/)([a-zA-Z0-9]{22})", resp.text)
+                ))
+                if track_ids:
+                    break
+            except Exception:
+                continue
+
+        if track_ids:
+            token = await _get_token()
+            for i in range(0, len(track_ids), 50):
+                batch = track_ids[i : i + 50]
+                try:
+                    resp = await client.get(
+                        f"https://api.spotify.com/v1/tracks?ids={','.join(batch)}",
+                        headers={"Authorization": f"Bearer {token}"},
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    for track in data.get("tracks", []):
+                        if track:
+                            artists = ", ".join(a["name"] for a in track.get("artists", []))
+                            images = track.get("album", {}).get("images", [])
+                            results.append(SpotifySearchResult(
+                                spotify_id=track["id"],
+                                title=track["name"],
+                                artist=artists,
+                                album=track.get("album", {}).get("name"),
+                                album_art_url=images[0]["url"] if images else None,
+                                preview_url=track.get("preview_url"),
+                            ))
+                except Exception:
+                    logger.warning("Batch track fetch failed for %d IDs", len(batch))
+
+    logger.info("Fetched %d tracks from Spotify playlist %s", len(results), playlist_id)
     return results
 
 
