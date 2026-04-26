@@ -3,10 +3,10 @@ import typicalPaths from "../../imports/TypicalInterface/svg-syb5hmyv5i";
 import importingPaths from "../../imports/Importing/svg-7w1x4qdq2v";
 import introPaths from "../../imports/IntroSection/svg-9b2lfwsny0";
 
-export function SeratuneLogo(props: SVGProps<SVGSVGElement>) {
+export function SeratoneLogo(props: SVGProps<SVGSVGElement>) {
   return (
     <svg fill="none" preserveAspectRatio="none" viewBox="0 0 242.147 40.576" {...props}>
-      <g id="seratune">
+      <g id="seratone">
         <path d={typicalPaths.p3d452600} fill="var(--fill-0, #0D3B66)" id="Vector" />
         <path d={typicalPaths.p2afa2800} fill="var(--fill-0, #0D3B66)" id="Vector_2" />
         <path d={typicalPaths.p35e7fdf0} fill="var(--fill-0, #0D3B66)" id="Vector_3" />

@@ -5,7 +5,7 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { X, Send } from "lucide-react";
 import {
-  SeratuneLogo,
+  SeratoneLogo,
   SpiderChartSvg,
   SoundBarsIcon,
   FileIcon,
@@ -151,16 +151,11 @@ export default function Home() {
 
       {/* Logo Group — clickable, returns to intro */}
       <div
-        className="absolute top-0 z-20 flex items-center gap-4 cursor-pointer transition-opacity hover:opacity-80"
-        style={{ left: layout.logoLeft, height: TOPBAR_H }}
+        className="absolute z-20 flex items-end cursor-pointer transition-opacity hover:opacity-80"
+        style={{ left: layout.logoLeft, top: TOPBAR_H - 41 }}
         onClick={() => { cancelAnalyzeTimeout(); setBrainFlashing(false); setViewState("intro"); }}
       >
-        <div className="flex">
-          <div className="bg-[#f4d35e] h-6 w-[3px]" />
-          <div className="bg-[#ee964b] h-6 w-[3px]" />
-          <div className="bg-[#f95738] h-6 w-[3px]" />
-        </div>
-        <SeratuneLogo className="h-[40px] w-auto" />
+        <SeratoneLogo className="h-[41px] w-auto" />
       </div>
 
       {/* Right Section (Analysis View) — slides in from right */}
