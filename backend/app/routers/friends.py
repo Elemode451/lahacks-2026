@@ -30,6 +30,16 @@ async def add_friend(
     friend_user_id: str | None = None
 
     if req.friend_id:
+        # Verify the user actually exists before accepting the ID
+        profile_check = (
+            sb.table("profiles")
+            .select("user_id")
+            .eq("user_id", req.friend_id)
+            .maybe_single()
+            .execute()
+        )
+        if not profile_check.data:
+            raise HTTPException(404, "User not found")
         friend_user_id = req.friend_id
     elif req.display_name:
         result = (
@@ -184,7 +194,7 @@ async def friends_feed(user_id: str = Depends(require_auth)):
     song_keys = list({r["song_key"] for r in interactions.data})
     songs_result = (
         sb.table("song_cache")
-        .select("lookup_key, title, artist, region_scores")
+        .select("lookup_key, title, artist")
         .in_("lookup_key", song_keys)
         .execute()
     )
