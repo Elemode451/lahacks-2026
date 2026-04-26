@@ -21,6 +21,11 @@ interface SongRecommendationsProps {
   onRequestCollaborative?: () => void;
 }
 
+function sourceLabel(source: string): string {
+  if (source === "collaborative") return "listeners like you";
+  return "brain match";
+}
+
 function sourceColor(source: string): { text: string; bg: string } {
   if (source === "collaborative") return { text: "rgba(238,150,75,0.7)", bg: "rgba(238,150,75,0.1)" };
   return { text: "rgba(249,87,56,0.6)", bg: "rgba(249,87,56,0.08)" };
@@ -174,7 +179,7 @@ export default function SongRecommendations({
                     backgroundColor: sourceColor(currentSong.source).bg,
                   }}
                 >
-                  {Math.round(currentSong.similarity_score * 100)}%
+                  {sourceLabel(currentSong.source)}
                 </span>
               </motion.div>
 

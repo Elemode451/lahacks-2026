@@ -247,7 +247,7 @@ export default function SharedAnalysisPage() {
                 transition={{ delay: 0.5 }}
               >
                 <p className="text-[#0d3b66]/40 text-[9px] tracking-[0.12em] uppercase font-semibold mb-3">Songs Analyzed</p>
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-2 max-h-[300px] overflow-y-auto custom-scrollbar">
                   {songs.map((song, i) => (
                     <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-[rgba(13,59,102,0.02)]">
                       <div className="w-7 h-7 rounded-md bg-gradient-to-br from-[rgba(249,87,56,0.08)] to-[rgba(238,150,75,0.1)] flex items-center justify-center shrink-0">

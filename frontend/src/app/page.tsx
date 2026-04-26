@@ -770,46 +770,6 @@ export default function Home() {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.6, delay: 0.4 }}
             >
-              {/* Share button row */}
-              <motion.div
-                className="flex items-center justify-end shrink-0"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.45 }}
-              >
-                <motion.button
-                  onClick={handleShareAnalysis}
-                  disabled={shareStatus === "sharing" || !session?.access_token}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[9px] uppercase tracking-wider font-semibold transition-all duration-200 border disabled:opacity-30"
-                  style={{
-                    color: shareStatus === "copied" ? "rgba(34,197,94,0.8)" : "rgba(13,59,102,0.4)",
-                    backgroundColor: shareStatus === "copied" ? "rgba(34,197,94,0.08)" : "rgba(13,59,102,0.03)",
-                    borderColor: shareStatus === "copied" ? "rgba(34,197,94,0.2)" : "rgba(13,59,102,0.08)",
-                  }}
-                  whileHover={{ scale: 1.03 }}
-                  whileTap={{ scale: 0.97 }}
-                >
-                  <AnimatePresence mode="wait">
-                    {shareStatus === "copied" ? (
-                      <motion.span key="copied" className="flex items-center gap-1.5" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}>
-                        <Check className="w-3 h-3" />
-                        link copied
-                      </motion.span>
-                    ) : shareStatus === "sharing" ? (
-                      <motion.span key="sharing" className="flex items-center gap-1.5" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                        <div className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
-                        sharing...
-                      </motion.span>
-                    ) : (
-                      <motion.span key="idle" className="flex items-center gap-1.5" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}>
-                        <Share2 className="w-3 h-3" />
-                        share analysis
-                      </motion.span>
-                    )}
-                  </AnimatePresence>
-                </motion.button>
-              </motion.div>
-
               {/* Timeline Section */}
               <motion.div
                 className="glass-card px-6 py-5 shrink-0"
@@ -817,9 +777,44 @@ export default function Home() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5, delay: 0.5, ease: panelEase }}
               >
-                <div className="flex items-center gap-2 mb-3">
-                  <Radio className="w-3.5 h-3.5 text-[#0d3b66]/40" />
-                  <h3 className="section-header">Timeline</h3>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Radio className="w-3.5 h-3.5 text-[#0d3b66]/40" />
+                    <h3 className="section-header">Timeline</h3>
+                  </div>
+
+                  {/* Share button */}
+                  <motion.button
+                    onClick={handleShareAnalysis}
+                    disabled={shareStatus === "sharing" || !session?.access_token}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-[11px] font-semibold transition-all duration-200 border disabled:opacity-30"
+                    style={{
+                      color: shareStatus === "copied" ? "#fff" : "rgba(249,87,56,0.85)",
+                      backgroundColor: shareStatus === "copied" ? "rgba(34,197,94,0.85)" : "rgba(249,87,56,0.08)",
+                      borderColor: shareStatus === "copied" ? "rgba(34,197,94,0.9)" : "rgba(249,87,56,0.2)",
+                    }}
+                    whileHover={{ scale: 1.04 }}
+                    whileTap={{ scale: 0.96 }}
+                  >
+                    <AnimatePresence mode="wait">
+                      {shareStatus === "copied" ? (
+                        <motion.span key="copied" className="flex items-center gap-1.5" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}>
+                          <Check className="w-3.5 h-3.5" />
+                          Link Copied!
+                        </motion.span>
+                      ) : shareStatus === "sharing" ? (
+                        <motion.span key="sharing" className="flex items-center gap-1.5" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                          <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                          Sharing...
+                        </motion.span>
+                      ) : (
+                        <motion.span key="idle" className="flex items-center gap-1.5" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}>
+                          <Share2 className="w-3.5 h-3.5" />
+                          Share
+                        </motion.span>
+                      )}
+                    </AnimatePresence>
+                  </motion.button>
                 </div>
                 <AudioTimeline
                   duration={214}
