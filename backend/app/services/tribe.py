@@ -426,8 +426,8 @@ def aggregate_fingerprints(
     region_fields = ["auditory", "superior_temporal", "temporo_parietal",
                      "inferior_frontal", "multisensory", "whole_cortex"]
     avg_scores: dict[str, float] = {}
-    for field in region_fields:
-        avg_scores[field] = float(np.mean([getattr(fp.region_scores, field) for fp in fps]))
+    for region_name in region_fields:
+        avg_scores[region_name] = float(np.mean([getattr(fp.region_scores, region_name) for fp in fps]))
     region_scores = RegionScores(**avg_scores)
 
     # Timeline: average region scores across songs, resample to 30 segments
