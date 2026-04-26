@@ -3,7 +3,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import dynamic from "next/dynamic";
-import { X, Send, LogOut, Clock, Music, Brain, MessageCircle, Radio } from "lucide-react";
+import { X, Send, LogOut, Clock, Music, Brain, MessageCircle, Radio, Share2, Check } from "lucide-react";
 import {
   SeratoneLogo,
   SoundBarsIcon,
@@ -87,6 +87,9 @@ export default function Home() {
   const [recommendations, setRecommendations] = useState<RecommendedSong[]>([]);
   const [recsLoading, setRecsLoading] = useState(false);
   const seenSongIdsRef = useRef<Set<string>>(new Set());
+
+  // Share state
+  const [shareStatus, setShareStatus] = useState<"idle" | "sharing" | "copied">("idle");
 
   useEffect(() => {
     if (!loading && !user) {
@@ -199,6 +202,12 @@ export default function Home() {
 
   const peakSegment = (analysisResult?.peak_segment as number | undefined) ?? undefined;
 
+  // Detect creator mode: creator analyses have a `song` object, not a `songs` array
+  const isCreatorMode = useMemo(() => {
+    if (!analysisResult) return false;
+    return !!(analysisResult as Record<string, unknown>).song && !Array.isArray((analysisResult as Record<string, unknown>).songs);
+  }, [analysisResult]);
+
   const topMatches = useMemo(() => {
     if (!analysisResult) return undefined;
     const matches = analysisResult.top_matches as Array<{
@@ -210,6 +219,7 @@ export default function Home() {
     return matches.map((m) => ({
       title: m.song.title,
       artist: m.song.artist,
+      similarity: m.similarity_score,
       tag: m.matching_regions?.[0]?.replace(/_/g, " ") ?? `${Math.round(m.similarity_score * 100)}% match`,
     }));
   }, [analysisResult]);
@@ -286,6 +296,7 @@ export default function Home() {
     setRecommendations([]);
     setRecsLoading(false);
     seenSongIdsRef.current.clear();
+    setShareStatus("idle");
   };
 
   // Fetch recommendations for a given song identifier
@@ -405,6 +416,70 @@ export default function Home() {
       }
     }
   }, [analysisResult, fetchRecommendations]);
+
+  // Fetch collaborative-only recommendations (triggered periodically by SongRecommendations)
+  const handleRequestCollaborative = useCallback(async () => {
+    const token = session?.access_token ?? null;
+    if (!token) return;
+
+    try {
+      const collabRes = await apiFetch(
+        "/recommendations/collaborative",
+        { method: "POST", body: JSON.stringify({ n: 5 }) },
+        token,
+      );
+      if (collabRes.ok) {
+        const data = await collabRes.json();
+        const collabSongs: RecommendedSong[] = (data.recommendations ?? []).map(
+          (r: { song: { song_id: string; title: string; artist: string }; similarity_score: number; source: string }) => ({
+            song_id: r.song.song_id,
+            title: r.song.title,
+            artist: r.song.artist,
+            similarity_score: r.similarity_score,
+            source: r.source ?? "collaborative",
+          }),
+        );
+
+        const seen = seenSongIdsRef.current;
+        setRecommendations((prev) => {
+          const existingIds = new Set(prev.map((s) => s.song_id));
+          const newSongs = collabSongs.filter(
+            (s) => !existingIds.has(s.song_id) && !seen.has(s.song_id),
+          );
+          for (const s of newSongs) seen.add(s.song_id);
+          return [...prev, ...newSongs];
+        });
+      }
+    } catch (err) {
+      console.error("Failed to fetch collaborative recs:", err);
+    }
+  }, [session]);
+
+  // Share analysis handler
+  const handleShareAnalysis = useCallback(async () => {
+    const analysisId = (analysisResult as Record<string, unknown> | null)?.analysis_id as string | undefined;
+    if (!analysisId || !session?.access_token) return;
+
+    setShareStatus("sharing");
+    try {
+      const res = await apiFetch(
+        `/analyses/${analysisId}/share`,
+        { method: "POST" },
+        session.access_token,
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const url = `${window.location.origin}${data.share_url}`;
+        await navigator.clipboard.writeText(url);
+        setShareStatus("copied");
+        setTimeout(() => setShareStatus("idle"), 2500);
+      } else {
+        setShareStatus("idle");
+      }
+    } catch {
+      setShareStatus("idle");
+    }
+  }, [analysisResult, session]);
 
   // ── Real API: Creator Mode (file upload) ──
   const handleCreatorAnalyze = useCallback(async () => {
@@ -769,9 +844,44 @@ export default function Home() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5, delay: 0.5, ease: panelEase }}
               >
-                <div className="flex items-center gap-2 mb-3">
-                  <Radio className="w-3.5 h-3.5 text-[#0d3b66]/40" />
-                  <h3 className="section-header">Timeline</h3>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Radio className="w-3.5 h-3.5 text-[#0d3b66]/40" />
+                    <h3 className="section-header">Timeline</h3>
+                  </div>
+
+                  {/* Share button */}
+                  <motion.button
+                    onClick={handleShareAnalysis}
+                    disabled={shareStatus === "sharing" || !session?.access_token}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-[11px] font-semibold transition-all duration-200 border disabled:opacity-30"
+                    style={{
+                      color: shareStatus === "copied" ? "#fff" : "rgba(249,87,56,0.85)",
+                      backgroundColor: shareStatus === "copied" ? "rgba(34,197,94,0.85)" : "rgba(249,87,56,0.08)",
+                      borderColor: shareStatus === "copied" ? "rgba(34,197,94,0.9)" : "rgba(249,87,56,0.2)",
+                    }}
+                    whileHover={{ scale: 1.04 }}
+                    whileTap={{ scale: 0.96 }}
+                  >
+                    <AnimatePresence mode="wait">
+                      {shareStatus === "copied" ? (
+                        <motion.span key="copied" className="flex items-center gap-1.5" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}>
+                          <Check className="w-3.5 h-3.5" />
+                          Link Copied!
+                        </motion.span>
+                      ) : shareStatus === "sharing" ? (
+                        <motion.span key="sharing" className="flex items-center gap-1.5" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                          <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                          Sharing...
+                        </motion.span>
+                      ) : (
+                        <motion.span key="idle" className="flex items-center gap-1.5" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}>
+                          <Share2 className="w-3.5 h-3.5" />
+                          Share
+                        </motion.span>
+                      )}
+                    </AnimatePresence>
+                  </motion.button>
                 </div>
                 <AudioTimeline
                   duration={214}
@@ -836,19 +946,75 @@ export default function Home() {
                   />
                 </div>
 
-                {/* Recommendations Section */}
+                {/* Right panel: Creator → Sounds Similar To / Listener → Discover */}
                 <div className="glass-card px-5 py-4 w-[40%] shrink-0 flex flex-col">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Music className="w-3.5 h-3.5 text-[#0d3b66]/40" />
-                    <h3 className="section-header">Discover</h3>
-                  </div>
-                  <SongRecommendations
-                    className="flex-1 min-h-0"
-                    recommendations={recommendations}
-                    loading={recsLoading}
-                    onSongClick={handleRecommendedSongClick}
-                    onRefresh={handleRefreshRecommendations}
-                  />
+                  {isCreatorMode ? (
+                    <>
+                      <div className="flex items-center gap-2 mb-3">
+                        <Music className="w-3.5 h-3.5 text-[#0d3b66]/40" />
+                        <h3 className="section-header">Sounds Similar To</h3>
+                      </div>
+                      <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-2">
+                        {topMatches && topMatches.length > 0 ? (
+                          <AnimatePresence initial={false}>
+                            {topMatches.map((match, i) => (
+                              <motion.div
+                                key={`${match.title}-${i}`}
+                                initial={{ opacity: 0, y: 8 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: i * 0.06, duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+                                className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-[rgba(13,59,102,0.02)] border border-[rgba(13,59,102,0.05)] hover:bg-[rgba(13,59,102,0.05)] hover:border-[rgba(13,59,102,0.1)] transition-all duration-200"
+                              >
+                                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[rgba(249,87,56,0.08)] to-[rgba(238,150,75,0.12)] flex items-center justify-center shrink-0">
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#f95738]/50">
+                                    <path d="M9 18V5l12-2v13" />
+                                    <circle cx="6" cy="18" r="3" />
+                                    <circle cx="18" cy="16" r="3" />
+                                  </svg>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[#0d3b66] text-[11px] font-medium truncate leading-tight">{match.title}</p>
+                                  <p className="text-[#0d3b66]/40 text-[10px] truncate leading-tight mt-0.5">{match.artist}</p>
+                                </div>
+                                <div className="flex flex-col items-end shrink-0 gap-0.5">
+                                  <span className="text-[#f95738]/60 text-[10px] font-semibold tabular-nums">
+                                    {Math.round(match.similarity * 100)}%
+                                  </span>
+                                  <span className="text-[#0d3b66]/25 text-[8px] uppercase tracking-wider">
+                                    {match.tag}
+                                  </span>
+                                </div>
+                              </motion.div>
+                            ))}
+                          </AnimatePresence>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center py-8">
+                            <div className="w-10 h-10 rounded-xl bg-[rgba(13,59,102,0.04)] flex items-center justify-center mb-2">
+                              <Music className="w-4 h-4 text-[#0d3b66]/20" />
+                            </div>
+                            <p className="text-[#0d3b66]/25 text-[10px] text-center">
+                              No similar songs found in the catalog yet
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2 mb-3">
+                        <Music className="w-3.5 h-3.5 text-[#0d3b66]/40" />
+                        <h3 className="section-header">Discover</h3>
+                      </div>
+                      <SongRecommendations
+                        className="flex-1 min-h-0"
+                        recommendations={recommendations}
+                        loading={recsLoading}
+                        onSongClick={handleRecommendedSongClick}
+                        onRefresh={handleRefreshRecommendations}
+                        onRequestCollaborative={handleRequestCollaborative}
+                      />
+                    </>
+                  )}
                 </div>
               </motion.div>
             </motion.div>

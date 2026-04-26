@@ -131,25 +131,32 @@ async def analyze_creator_track(
         # Compute lookup key early so we can exclude ourselves from similar songs
         lookup_key = _upload_lookup_key(audio.filename or "upload.wav", file_bytes)
 
-        # Find similar songs from the catalog
+        # Find similar songs from the catalog by cosine similarity on region scores
         try:
-            similar, _total = await asyncio.to_thread(
+            similar_results, _ = await asyncio.to_thread(
                 find_similar_songs,
-                song_fp.region_scores,
-                exclude_key=lookup_key,
+                target_scores=song_fp.region_scores,
+                exclude_keys={lookup_key},
                 n=10,
             )
             top_matches = [
                 SongMatch(
                     song=SongInfo(
-                        song_id=s["lookup_key"],
-                        title=s["title"],
-                        artist=s["artist"],
+                        song_id=r["lookup_key"],
+                        title=r["title"],
+                        artist=r["artist"],
                     ),
-                    similarity_score=s["similarity"],
+                    similarity_score=r["similarity"],
+                    matching_regions=[
+                        region for region in r.get("region_scores", {})
+                        if abs(
+                            getattr(song_fp.region_scores, region, 0.0)
+                            - float(r["region_scores"].get(region, 0.0))
+                        ) < 0.01
+                    ],
                     source="brain_similarity",
                 )
-                for s in similar
+                for r in similar_results
             ]
         except Exception:
             logger.warning("Failed to find similar songs for creator upload")
