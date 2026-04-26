@@ -447,3 +447,14 @@ class AuthResponse(BaseModel):
 
 class SyncProfileResponse(BaseModel):
     display_name: str = ""
+
+
+class OAuthStartResponse(BaseModel):
+    url: str
+
+
+class SpotifyTokenData(BaseModel):
+    access_token: str
+    refresh_token: str | None = None
+    expires_in: int
+    scope: str
