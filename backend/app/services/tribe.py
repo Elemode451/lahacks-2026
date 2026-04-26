@@ -8,6 +8,7 @@ When False, calls the TRIBE inference worker API.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import gzip
 import io
@@ -143,6 +144,11 @@ _POLL_INTERVAL_S = 5       # seconds between /status polls
 _POLL_TIMEOUT_S = 600      # max wait for a single job
 _SUBMIT_RETRIES = 3        # retry /submit on transient errors
 
+# In-flight background tasks keyed by cache_key so polling survives
+# client disconnects.  Each value is an asyncio.Task whose result is
+# SongFingerprints (or raises on failure).
+_inflight: dict[str, asyncio.Task] = {}
+
 
 async def _submit_and_poll(audio_path: Path) -> dict:
     """Submit audio to the async worker, poll /status until done.
@@ -150,7 +156,6 @@ async def _submit_and_poll(audio_path: Path) -> dict:
     Uses POST /submit (returns immediately) + GET /status/{job_id}
     to avoid Cloudflare's 100-second proxy timeout on free tunnels.
     """
-    import asyncio
     import httpx
 
     worker = settings.tribe_worker_url
@@ -211,6 +216,45 @@ async def _submit_and_poll(audio_path: Path) -> dict:
     raise TimeoutError(f"Job {job_id} did not complete within {_POLL_TIMEOUT_S}s")
 
 
+async def _do_inference(
+    audio_path: Path,
+    *,
+    cache_key: str | None = None,
+    title: str = "Unknown",
+    artist: str = "Unknown",
+) -> SongFingerprints:
+    """Submit to worker, poll, derive fingerprints, and cache.
+
+    Runs as an independent background task so it survives client disconnects.
+    """
+    from app.services.song_cache import store_cached
+
+    data = await _submit_and_poll(audio_path)
+
+    if "preds_b64gz" in data:
+        compressed = base64.b64decode(data["preds_b64gz"])
+        raw = gzip.decompress(compressed)
+        preds = np.load(io.BytesIO(raw))
+    else:
+        preds = np.array(data["preds"], dtype=np.float32)
+
+    logger.info("Received preds %s from worker", preds.shape)
+
+    fingerprints = derive_fingerprints(preds)
+
+    if cache_key:
+        await asyncio.to_thread(
+            store_cached,
+            cache_key,
+            fingerprints,
+            title=title,
+            artist=artist,
+            inference_time_s=data.get("inference_time_s"),
+        )
+
+    return fingerprints
+
+
 async def analyze_audio(
     audio_path: Path,
     *,
@@ -227,42 +271,38 @@ async def analyze_audio(
     In mock mode, generates structured fake data.
     In real mode, submits to the async worker queue via POST /submit and
     polls GET /status/{job_id} for results (avoids Cloudflare tunnel timeouts).
+
+    The polling task is shielded from cancellation — if the HTTP client
+    disconnects, the backend continues polling and caches the result so
+    no GPU work is wasted.
     """
-    import asyncio
-
-    from app.services.song_cache import store_cached
-
     if settings.use_mock_tribe:
         logger.info("Using MOCK TRIBE analysis for %s", audio_path)
         preds = _mock_preds(seed=str(audio_path))
         return derive_fingerprints(preds)
 
-    # Async submit + poll (or sync fallback for old workers)
-    data = await _submit_and_poll(audio_path)
+    # If this cache_key already has an in-flight task, await it instead
+    # of submitting a duplicate job.
+    if cache_key and cache_key in _inflight:
+        logger.info("Joining existing in-flight task for %s", cache_key)
+        return await asyncio.shield(_inflight[cache_key])
 
-    if "preds_b64gz" in data:
-        compressed = base64.b64decode(data["preds_b64gz"])
-        raw = gzip.decompress(compressed)
-        preds = np.load(io.BytesIO(raw))
-    else:
-        preds = np.array(data["preds"], dtype=np.float32)
-
-    logger.info("Received preds %s from worker", preds.shape)
-
-    fingerprints = derive_fingerprints(preds)
-
-    # Store in cache for next time (offload to thread to avoid blocking)
-    if cache_key:
-        await asyncio.to_thread(
-            store_cached,
-            cache_key,
-            fingerprints,
+    # Spawn as a background task and shield it from cancellation so it
+    # keeps running even if the SSE client disconnects.
+    task = asyncio.create_task(
+        _do_inference(
+            audio_path,
+            cache_key=cache_key,
             title=title,
             artist=artist,
-            inference_time_s=data.get("inference_time_s"),
         )
+    )
 
-    return fingerprints
+    if cache_key:
+        _inflight[cache_key] = task
+        task.add_done_callback(lambda _: _inflight.pop(cache_key, None))
+
+    return await asyncio.shield(task)
 
 
 def resample_sequence(

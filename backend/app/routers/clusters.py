@@ -344,11 +344,6 @@ async def analyze_cluster_stream(
 
         try:
             for idx, cluster_song in enumerate(all_cluster_songs):
-                # Check if client disconnected
-                if await request.is_disconnected():
-                    logger.info("Client disconnected, stopping stream")
-                    return
-
                 title = cluster_song.title or "Unknown"
                 artist = cluster_song.artist or "Unknown"
 
