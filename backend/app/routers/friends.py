@@ -30,12 +30,22 @@ async def add_friend(
     friend_user_id: str | None = None
 
     if req.friend_id:
+        # Verify the user actually exists before accepting the ID
+        profile_check = (
+            sb.table("profiles")
+            .select("user_id")
+            .eq("user_id", req.friend_id)
+            .maybe_single()
+            .execute()
+        )
+        if not profile_check.data:
+            raise HTTPException(404, "User not found")
         friend_user_id = req.friend_id
     elif req.display_name:
         result = (
             sb.table("profiles")
             .select("user_id")
-            .ilike("display_name", req.display_name)
+            .eq("display_name", req.display_name)
             .limit(1)
             .execute()
         )
