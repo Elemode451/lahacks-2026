@@ -2,14 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 
-const BAR_COUNT = 72;
-
-// Deterministic waveform shape — envelope-modulated pseudo-random heights
-const barHeights = Array.from({ length: BAR_COUNT }, (_, i) => {
-  const r = Math.abs(Math.sin(i * 2.3999632) * Math.cos(i * 0.7530));
-  const env = Math.pow(Math.sin((i / BAR_COUNT) * Math.PI), 0.45);
-  return Math.max(0.08, Math.min(1, r * env + 0.08));
-});
+const DEFAULT_BAR_COUNT = 30;
 
 function fmt(s: number) {
   const m = Math.floor(s / 60);
@@ -19,54 +12,116 @@ function fmt(s: number) {
 
 interface AudioTimelineProps {
   duration?: number;
+  segmentActivations?: number[];
+  peakIndex?: number;
+  currentIndex?: number;
+  onSegmentChange?: (index: number) => void;
   className?: string;
 }
 
 export default function AudioTimeline({
   duration = 214,
+  segmentActivations,
+  peakIndex,
+  currentIndex,
+  onSegmentChange,
   className = "",
 }: AudioTimelineProps) {
-  const [position, setPosition] = useState(0); // 0–1
+  const barCount = segmentActivations?.length ?? DEFAULT_BAR_COUNT;
+
+  // Normalize activations to 0–1 range for bar heights
+  const barHeights = (() => {
+    if (!segmentActivations || segmentActivations.length === 0) {
+      // Fallback: deterministic decorative waveform
+      return Array.from({ length: barCount }, (_, i) => {
+        const r = Math.abs(Math.sin(i * 2.3999632) * Math.cos(i * 0.7530));
+        const env = Math.pow(Math.sin((i / barCount) * Math.PI), 0.45);
+        return Math.max(0.08, Math.min(1, r * env + 0.08));
+      });
+    }
+    const max = Math.max(...segmentActivations);
+    const min = Math.min(...segmentActivations);
+    const range = max - min || 1;
+    return segmentActivations.map((v) =>
+      Math.max(0.08, (v - min) / range),
+    );
+  })();
+
+  // Controlled mode: use currentIndex prop; uncontrolled mode: local state
+  const controlled = currentIndex != null && onSegmentChange != null;
+  const [localIndex, setLocalIndex] = useState(0);
+  const activeIndex = controlled ? currentIndex : localIndex;
+
   const [isPlaying, setIsPlaying] = useState(false);
   const rafRef = useRef<number | null>(null);
   const lastTsRef = useRef<number | null>(null);
   const waveRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
 
-  const tick = useCallback(
-    (ts: number) => {
-      if (lastTsRef.current !== null) {
-        const dt = (ts - lastTsRef.current) / 1000;
-        setPosition((p) => {
-          const next = p + dt / duration;
-          if (next >= 1) { setIsPlaying(false); return 1; }
-          return next;
-        });
-      }
-      lastTsRef.current = ts;
-      rafRef.current = requestAnimationFrame(tick);
-    },
-    [duration]
-  );
+  // Store latest callback deps in a ref so the rAF loop never goes stale
+  const tickDepsRef = useRef({ duration, barCount, controlled, currentIndex, onSegmentChange });
+  useEffect(() => {
+    tickDepsRef.current = { duration, barCount, controlled, currentIndex, onSegmentChange };
+  });
 
   useEffect(() => {
-    if (isPlaying) {
-      rafRef.current = requestAnimationFrame(tick);
-    } else {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    if (!isPlaying) {
       lastTsRef.current = null;
+      return;
     }
-    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [isPlaying, tick]);
 
-  const seekTo = useCallback((clientX: number) => {
-    const el = waveRef.current;
-    if (!el) return;
-    const { left, width } = el.getBoundingClientRect();
-    setPosition(Math.max(0, Math.min(1, (clientX - left) / width)));
-  }, []);
+    const loop = (ts: number) => {
+      const { duration: dur, barCount: bc, controlled: ctrl, currentIndex: ci, onSegmentChange: osc } = tickDepsRef.current;
+      if (lastTsRef.current !== null) {
+        const dt = (ts - lastTsRef.current) / 1000;
+        const advance = dt / (dur / bc);
 
-  const cursorIdx = Math.round(position * (BAR_COUNT - 1));
+        if (ctrl && osc && ci != null) {
+          const next = ci + advance;
+          if (next >= bc - 1) {
+            setIsPlaying(false);
+            osc(bc - 1);
+          } else {
+            osc(Math.round(next));
+          }
+        } else {
+          setLocalIndex((prev) => {
+            const next = prev + advance;
+            if (next >= bc - 1) {
+              setIsPlaying(false);
+              return bc - 1;
+            }
+            return Math.round(next);
+          });
+        }
+      }
+      lastTsRef.current = ts;
+      rafRef.current = requestAnimationFrame(loop);
+    };
+
+    rafRef.current = requestAnimationFrame(loop);
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [isPlaying]);
+
+  const seekTo = useCallback(
+    (clientX: number) => {
+      const el = waveRef.current;
+      if (!el) return;
+      const { left, width } = el.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (clientX - left) / width));
+      const idx = Math.round(ratio * (barCount - 1));
+      if (controlled) {
+        onSegmentChange(idx);
+      } else {
+        setLocalIndex(idx);
+      }
+    },
+    [barCount, controlled, onSegmentChange],
+  );
+
+  const position = activeIndex / (barCount - 1);
 
   return (
     <div className={`flex flex-col gap-2 w-full ${className}`}>
@@ -76,7 +131,6 @@ export default function AudioTimeline({
           {fmt(position * duration)}
         </span>
 
-        {/* Minimal play / pause glyph */}
         <button
           onClick={() => setIsPlaying((p) => !p)}
           className="text-[#f95738]/70 hover:text-[#f95738] transition-colors cursor-pointer"
@@ -104,13 +158,20 @@ export default function AudioTimeline({
           e.currentTarget.setPointerCapture(e.pointerId);
           seekTo(e.clientX);
         }}
-        onPointerMove={(e) => { if (dragging.current) seekTo(e.clientX); }}
-        onPointerUp={() => { dragging.current = false; }}
-        onPointerCancel={() => { dragging.current = false; }}
+        onPointerMove={(e) => {
+          if (dragging.current) seekTo(e.clientX);
+        }}
+        onPointerUp={() => {
+          dragging.current = false;
+        }}
+        onPointerCancel={() => {
+          dragging.current = false;
+        }}
       >
         {barHeights.map((h, i) => {
-          const filled = i < cursorIdx;
-          const isCursor = i === cursorIdx;
+          const filled = i < activeIndex;
+          const isCursor = i === activeIndex;
+          const isPeak = i === peakIndex;
           return (
             <div
               key={i}
@@ -119,10 +180,13 @@ export default function AudioTimeline({
                 height: `${h * 100}%`,
                 background: isCursor
                   ? "#f95738"
-                  : filled
-                  ? "rgba(249,87,56,0.55)"
-                  : "rgba(13,59,102,0.12)",
+                  : isPeak && !filled
+                    ? "rgba(249,87,56,0.35)"
+                    : filled
+                      ? "rgba(249,87,56,0.55)"
+                      : "rgba(13,59,102,0.12)",
                 transition: "background 60ms linear",
+                boxShadow: isPeak ? "0 0 4px rgba(249,87,56,0.3)" : undefined,
               }}
             />
           );
