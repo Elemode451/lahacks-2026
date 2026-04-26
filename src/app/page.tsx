@@ -141,16 +141,14 @@ export default function Home() {
       <div
         className="absolute top-0 z-20 flex items-center gap-4 cursor-pointer transition-opacity hover:opacity-80"
         style={{ left: layout.logoLeft, height: TOPBAR_H }}
+        onClick={() => setViewState("intro")}
       >
         <div className="flex">
           <div className="bg-[#f4d35e] h-6 w-[3px]" />
           <div className="bg-[#ee964b] h-6 w-[3px]" />
           <div className="bg-[#f95738] h-6 w-[3px]" />
         </div>
-        <SeratuneLogo
-          className="h-[40px] w-auto cursor-pointer"
-          onClick={() => setViewState("intro")}
-        />
+        <SeratuneLogo className="h-[40px] w-auto" />
       </div>
 
       {/* Right Section (Analysis View) — slides in from right */}
