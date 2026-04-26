@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import collections
 import logging
 import uuid
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
 
 from app.models.schemas import CreatorAnalyzeResponse, SongInfo
 from app.services.audio import cleanup_audio, save_uploaded_audio
+from app.services.song_cache import save_analysis
 from app.services.tribe import analyze_audio
+from app.utils.auth import try_get_user_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/creator", tags=["creator"])
@@ -27,6 +30,7 @@ async def analyze_creator_track(
     audio: UploadFile = File(...),
     title: str = Form("Untitled"),
     artist: str = Form("Unknown"),
+    authorization: str | None = Header(None),
 ):
     """Analyze an uploaded track in creator mode.
 
@@ -90,10 +94,30 @@ async def analyze_creator_track(
             summary=summary,
         )
 
-        # Store in memory (not DB) so the user can retrieve it during the session
+        # Store in memory so the user can retrieve it during the session
         _creator_analyses[analysis_id] = result.model_dump()
         while len(_creator_analyses) > _MAX_CREATOR_CACHE:
             _creator_analyses.popitem(last=False)
+
+        # Persist to Supabase (non-blocking)
+        user_id = try_get_user_id(authorization)
+        creator_payload = {
+            "song": song.model_dump(),
+            "fingerprint_id": song_fp.fingerprint_id,
+            "region_scores": song_fp.region_scores.model_dump(),
+            "timeline_region_scores": song_fp.timeline_region_scores,
+            "peak_segment": song_fp.peak_index,
+            "summary": summary,
+        }
+        asyncio.get_running_loop().run_in_executor(
+            None,
+            save_analysis,
+            analysis_id,
+            "creator",
+            title,
+            creator_payload,
+            user_id,
+        )
 
         return result
 
