@@ -285,7 +285,20 @@ export default function Home() {
     seenSongIdsRef.current.clear();
   };
 
-  // Fetch recommendations for a given song identifier
+  // Derive the cache lookup key from a SongInfo object.
+  // The backend caches songs under "spotify:<id>" or the YouTube URL,
+  // NOT the random song_{uuid} id.
+  const deriveCacheKey = useCallback(
+    (songInfo: { lookup_key?: string | null; spotify_id?: string | null; song_id?: string }): string | null => {
+      if (songInfo.lookup_key) return songInfo.lookup_key;
+      if (songInfo.spotify_id) return `spotify:${songInfo.spotify_id}`;
+      if (songInfo.song_id?.startsWith("creator_")) return songInfo.song_id;
+      return null;
+    },
+    [],
+  );
+
+  // Fetch recommendations for a given cache lookup key
   const fetchRecommendations = useCallback(
     async (songId: string) => {
       setRecsLoading(true);
@@ -326,8 +339,8 @@ export default function Home() {
         let collabSongs: RecommendedSong[] = [];
         if (token) {
           const collabRes = await apiFetch(
-            "/recommendations/collaborative",
-            { method: "POST", body: JSON.stringify({ n: 10 }) },
+            "/recommendations/collaborative?n=10",
+            { method: "POST" },
             token,
           );
           if (collabRes.ok) {
@@ -368,21 +381,41 @@ export default function Home() {
     [session],
   );
 
-  // Handle clicking a recommended song — trigger analysis for it
+  // Handle clicking a recommended song — reset and analyze that single song
   const handleRecommendedSongClick = useCallback(
     (song: RecommendedSong) => {
       const songId = song.song_id;
+
+      // Creator uploads can't be re-analyzed via /clusters/analyze
+      if (songId.startsWith("creator_") || songId.startsWith("upload:")) return;
+
       const isSpotify = songId.startsWith("spotify:");
 
+      // Build URL for the song
+      let url: string;
       if (isSpotify) {
         const spotifyId = songId.replace("spotify:", "");
-        const url = `https://open.spotify.com/track/${spotifyId}`;
-        setSongs((prev) => [...prev, url]);
+        url = `https://open.spotify.com/track/${spotifyId}`;
       } else {
-        setSongs((prev) => [...prev, songId]);
+        url = songId;
       }
 
-      setImportType(songId.startsWith("spotify:") ? "spotify" : "youtube");
+      // Reset analysis state and queue this single song for analysis
+      cancelAnalyzeTimeout();
+      eventSourceRef.current?.close();
+      eventSourceRef.current = null;
+      setBrainFlashing(false);
+      setAnalysisResult(null);
+      setRecommendations([]);
+      setRecsLoading(false);
+      seenSongIdsRef.current.clear();
+      setProcessingStatus("");
+      setProcessingProgress(0);
+      setProcessingTotal(0);
+
+      setSongs([url]);
+      setImportType(isSpotify ? "spotify" : "youtube");
+      setViewState("importing");
     },
     [],
   );
@@ -523,12 +556,9 @@ export default function Home() {
               setBrainFlashing(false);
               setViewState("analysis");
               // Fetch recommendations for the first analyzed song
-              const analyzedSongs = data.songs as Array<{ song_id?: string; spotify_id?: string }> | undefined;
+              const analyzedSongs = data.songs as Array<{ song_id?: string; spotify_id?: string | null; lookup_key?: string | null }> | undefined;
               if (analyzedSongs?.length) {
-                const first = analyzedSongs[0];
-                const cacheKey = first.spotify_id
-                  ? `spotify:${first.spotify_id}`
-                  : first.song_id;
+                const cacheKey = deriveCacheKey(analyzedSongs[0]);
                 if (cacheKey) {
                   fetchRecommendations(cacheKey);
                 }
@@ -567,6 +597,22 @@ export default function Home() {
       setViewState("importing");
     }
   }, [songs, session, fetchRecommendations]);
+
+  // Refresh recommendations — re-fetches with history exclusion
+  const handleRefreshRecommendations = useCallback(() => {
+    if (!analysisResult) return;
+
+    // Try creator song first, then listener songs
+    const creatorSong = (analysisResult as Record<string, unknown>).song as { song_id?: string; spotify_id?: string | null; lookup_key?: string | null } | undefined;
+    const listenerSongs = (analysisResult as Record<string, unknown>).songs as Array<{ song_id?: string; spotify_id?: string | null; lookup_key?: string | null }> | undefined;
+
+    const target = creatorSong ?? listenerSongs?.[0];
+    if (target) {
+      const cacheKey = deriveCacheKey(target);
+      if (cacheKey) fetchRecommendations(cacheKey);
+    }
+  }, [analysisResult, fetchRecommendations, deriveCacheKey]);
+
 
   // Wire the analyze button to the right handler based on importType
   const handleAnalyze = () => {
