@@ -260,6 +260,7 @@ async def analyze_cluster(
             song_info = SongInfo(
                 song_id=song_id,
                 spotify_id=cluster_song.spotify_id,
+                lookup_key=cache_key,
                 title=title,
                 artist=artist,
             )
