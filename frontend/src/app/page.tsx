@@ -192,6 +192,7 @@ export default function Home() {
     } catch (err) {
       setProcessingStatus(`Failed: ${err instanceof Error ? err.message : "Unknown error"}`);
       setBrainFlashing(false);
+      setViewState("importing");
     }
   }, [uploadedFiles, session]);
 
@@ -281,12 +282,16 @@ export default function Home() {
       });
 
       eventSource.onerror = () => {
+        setProcessingStatus("Connection lost. Please try again.");
+        setBrainFlashing(false);
+        setViewState("importing");
         eventSource.close();
         eventSourceRef.current = null;
       };
     } catch (err) {
       setProcessingStatus(`Failed: ${err instanceof Error ? err.message : "Unknown error"}`);
       setBrainFlashing(false);
+      setViewState("importing");
     }
   }, [songs, session]);
 
