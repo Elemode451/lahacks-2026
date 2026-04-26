@@ -503,34 +503,37 @@ def find_collaborative_recommendations(
     skip = set(exclude_keys or ())
 
     try:
-        # Step 1: Get songs the current user has analyzed
+        # Step 1: Get songs the current user has actively analyzed
         resp = (
             client.table("user_song_interactions")
             .select("song_key")
             .eq("user_id", user_id)
+            .neq("interaction_type", "recommended")
             .execute()
         )
         my_songs = {row["song_key"] for row in (resp.data or [])}
         if not my_songs:
             return [], 0
 
-        # Step 2: Find other users who analyzed at least one of the same songs
+        # Step 2: Find other users who actively analyzed at least one of the same songs
         resp = (
             client.table("user_song_interactions")
             .select("user_id,song_key")
             .in_("song_key", list(my_songs))
             .neq("user_id", user_id)
+            .neq("interaction_type", "recommended")
             .execute()
         )
         similar_user_ids = {row["user_id"] for row in (resp.data or [])}
         if not similar_user_ids:
             return [], 0
 
-        # Step 3: Get all songs those similar users have analyzed
+        # Step 3: Get all songs those similar users have actively analyzed
         resp = (
             client.table("user_song_interactions")
             .select("song_key")
             .in_("user_id", list(similar_user_ids))
+            .neq("interaction_type", "recommended")
             .execute()
         )
 

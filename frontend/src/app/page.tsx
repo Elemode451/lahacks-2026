@@ -418,6 +418,27 @@ export default function Home() {
   const handleRefreshRecommendations = useCallback(() => {
     const result = analysisResult;
     if (!result) return;
+
+    // Creator mode: re-populate from top_matches (cache key mismatch prevents API call)
+    const topMatches = (result as Record<string, unknown>).top_matches as Array<{
+      song: { song_id: string; title: string; artist: string };
+      similarity_score: number;
+      source?: string;
+    }> | undefined;
+    if (topMatches?.length) {
+      setRecommendations(
+        topMatches.map((m) => ({
+          song_id: m.song.song_id,
+          title: m.song.title,
+          artist: m.song.artist,
+          similarity_score: m.similarity_score,
+          source: m.source ?? "brain_similarity",
+        })),
+      );
+      return;
+    }
+
+    // Listener/cluster mode: fetch via API
     const analyzedSongs = (result as Record<string, unknown>).songs as Array<{ song_id?: string; spotify_id?: string }> | undefined;
     if (analyzedSongs?.length) {
       const first = analyzedSongs[0];
