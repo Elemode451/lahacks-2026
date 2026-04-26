@@ -331,12 +331,19 @@ def save_analysis(
 
 
 def record_user_interaction(user_id: str, song_key: str, interaction_type: str = "analyzed") -> None:
-    """Record that a user interacted with a song (analyzed, saved, etc.)."""
-    client = _get_client()
-    if client is None:
+    """Record that a user interacted with a song (analyzed, saved, etc.).
+
+    Uses the admin (service-role) client to bypass RLS policies on the
+    user_song_interactions table.
+    """
+    try:
+        from app.services.supabase_client import get_supabase_admin
+        admin = get_supabase_admin()
+    except Exception:
+        logger.warning("Supabase admin not configured — skipping interaction tracking")
         return
     try:
-        client.table("user_song_interactions").upsert(
+        admin.table("user_song_interactions").upsert(
             {"user_id": user_id, "song_key": song_key, "interaction_type": interaction_type},
             on_conflict="user_id,song_key,interaction_type",
         ).execute()
@@ -345,22 +352,30 @@ def record_user_interaction(user_id: str, song_key: str, interaction_type: str =
 
 
 def record_recommendations(user_id: str, recommendations: list[dict]) -> None:
-    """Record which songs were recommended to a user (for de-duplication)."""
-    client = _get_client()
-    if client is None:
+    """Record which songs were recommended to a user (for de-duplication).
+
+    Stores in user_song_interactions with interaction_type='recommended'.
+    Uses the admin client to bypass RLS.
+    """
+    try:
+        from app.services.supabase_client import get_supabase_admin
+        admin = get_supabase_admin()
+    except Exception:
+        logger.warning("Supabase admin not configured — skipping recommendation tracking")
         return
     try:
         rows = [
             {
                 "user_id": user_id,
                 "song_key": r["lookup_key"],
-                "source": r.get("source", "brain_similarity"),
-                "similarity_score": r.get("similarity"),
+                "interaction_type": "recommended",
             }
             for r in recommendations
         ]
         if rows:
-            client.table("user_recommendations").insert(rows).execute()
+            admin.table("user_song_interactions").upsert(
+                rows, on_conflict="user_id,song_key,interaction_type",
+            ).execute()
     except Exception:
         logger.exception("Failed to record recommendations for user %s", user_id)
 
@@ -372,9 +387,10 @@ def get_previously_recommended(user_id: str) -> set[str]:
         return set()
     try:
         resp = (
-            client.table("user_recommendations")
+            client.table("user_song_interactions")
             .select("song_key")
             .eq("user_id", user_id)
+            .eq("interaction_type", "recommended")
             .execute()
         )
         return {row["song_key"] for row in (resp.data or [])}
@@ -390,9 +406,10 @@ def get_recommendation_history(user_id: str) -> list[dict]:
         return []
     try:
         resp = (
-            client.table("user_recommendations")
-            .select("song_key,source,similarity_score,created_at")
+            client.table("user_song_interactions")
+            .select("song_key,interaction_type,created_at")
             .eq("user_id", user_id)
+            .eq("interaction_type", "recommended")
             .order("created_at", desc=True)
             .execute()
         )
@@ -426,8 +443,8 @@ def get_recommendation_history(user_id: str) -> list[dict]:
                     "lookup_key": row["song_key"],
                     "title": meta.get("title", "Unknown"),
                     "artist": meta.get("artist", "Unknown"),
-                    "source": row.get("source", "brain_similarity"),
-                    "similarity": row.get("similarity_score", 0.0),
+                    "source": "brain_similarity",
+                    "similarity": 0.0,
                 })
         return results
     except Exception:
@@ -442,9 +459,10 @@ def clear_recommendation_history(user_id: str) -> int:
         return 0
     try:
         resp = (
-            client.table("user_recommendations")
+            client.table("user_song_interactions")
             .delete()
             .eq("user_id", user_id)
+            .eq("interaction_type", "recommended")
             .execute()
         )
         count = len(resp.data or [])

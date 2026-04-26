@@ -36,6 +36,9 @@ const SongRecommendations = dynamic(() => import("@/components/SongRecommendatio
 const KeyInfoDisplay = dynamic(() => import("@/components/KeyInfo"), {
   ssr: false,
 });
+const EmotionalProfile = dynamic(() => import("@/components/EmotionalProfile"), {
+  ssr: false,
+});
 
 type ViewState = "intro" | "importing" | "analyzing" | "processing" | "analysis";
 type ImportType = "file" | "spotify" | "youtube";
@@ -437,6 +440,26 @@ export default function Home() {
       setProcessingProgress(1);
       setBrainFlashing(false);
       setViewState("analysis");
+
+      // Populate recommendations directly from top_matches in the response
+      // (creator mode uses upload:{hash} cache keys which don't match song_id,
+      //  so we can't call fetchRecommendations — use the already-computed matches)
+      const topMatches = result.top_matches as Array<{
+        song: { song_id: string; title: string; artist: string };
+        similarity_score: number;
+        source?: string;
+      }> | undefined;
+      if (topMatches?.length) {
+        setRecommendations(
+          topMatches.map((m) => ({
+            song_id: m.song.song_id,
+            title: m.song.title,
+            artist: m.song.artist,
+            similarity_score: m.similarity_score,
+            source: m.source ?? "brain_similarity",
+          })),
+        );
+      }
     } catch (err) {
       setProcessingStatus(`Failed: ${err instanceof Error ? err.message : "Unknown error"}`);
       setBrainFlashing(false);
@@ -580,12 +603,56 @@ export default function Home() {
 
   useEffect(() => () => cancelAnalyzeTimeout(), []);
 
-  // Build overview text from analysis result
-  const overviewText = analysisResult
-    ? (analysisResult as Record<string, unknown>).summary as string ??
-      (analysisResult as Record<string, unknown>).vibe_description as string ??
-      "This music fits a limbic-dominant profile with strong auditory cortex engagement. High introspective alignment suggests deep default-mode network resonance characteristic of emotional processing music."
-    : "This music fits a limbic-dominant profile with strong auditory cortex engagement. High introspective alignment suggests deep default-mode network resonance characteristic of emotional processing music.";
+  // Build overview text from analysis result, enriched with brain regions and emotions
+  const overviewText = useMemo(() => {
+    const fallback =
+      "This music fits a limbic-dominant profile with strong auditory cortex engagement. High introspective alignment suggests deep default-mode network resonance characteristic of emotional processing music.";
+    if (!analysisResult) return fallback;
+
+    const regionLabels: Record<string, string> = {
+      auditory: "auditory cortex",
+      superior_temporal: "superior temporal gyrus",
+      temporo_parietal: "temporo-parietal junction",
+      inferior_frontal: "inferior frontal cortex",
+      multisensory: "multisensory integration areas",
+    };
+
+    // Build brain-region activation sentence from the top activated regions
+    const scores = (analysisResult.combined_region_scores ?? analysisResult.region_scores) as
+      | Record<string, number>
+      | undefined;
+    let regionSentence = "";
+    if (scores) {
+      const ranked = Object.entries(scores)
+        .filter(([k, v]) => k !== "whole_cortex" && typeof v === "number")
+        .sort(([, a], [, b]) => b - a);
+      const topRegions = ranked.slice(0, 3).map(([k]) => regionLabels[k] ?? k.replace(/_/g, " "));
+      if (topRegions.length > 0) {
+        regionSentence = `This track most strongly activates the ${topRegions.join(", ")}.`;
+      }
+    }
+
+    // Emotional profile sentence
+    const emotionalProfile = analysisResult.emotional_profile as
+      | { summary?: string; dominant_emotions?: string[] }
+      | undefined;
+    let emotionSentence = "";
+    if (emotionalProfile?.summary) {
+      emotionSentence = emotionalProfile.summary;
+    } else if (emotionalProfile?.dominant_emotions?.length) {
+      const emos = emotionalProfile.dominant_emotions.map((e) => e.toLowerCase());
+      const emotionList =
+        emos.length <= 2
+          ? emos.join(" and ")
+          : `${emos.slice(0, -1).join(", ")}, and ${emos[emos.length - 1]}`;
+      emotionSentence = `The primary predicted emotional responses are ${emotionList}.`;
+    }
+
+    // Compose: brain regions first (most interesting), then emotions, then vibe
+    const vibe = (analysisResult.vibe_description as string | undefined) ?? "";
+    const parts = [regionSentence, emotionSentence, vibe].filter(Boolean);
+    return parts.length > 0 ? parts.join(" ") : fallback;
+  }, [analysisResult]);
 
   if (loading || !user) {
     return (
@@ -731,6 +798,16 @@ export default function Home() {
                   <MusicRadarChart data={radarData} className="w-full max-w-[340px]" style={{ height: "min(220px, 26vh)" }} />
                 </div>
               </motion.div>
+
+              {/* Emotional Response */}
+              <EmotionalProfile
+                emotionalProfile={
+                  analysisResult?.emotional_profile as
+                    | { emotions?: { name: string; intensity: number; level: string; description: string }[]; dominant_emotions?: string[]; summary?: string }
+                    | null
+                    | undefined
+                }
+              />
 
               {/* Key Info */}
               <KeyInfoDisplay
