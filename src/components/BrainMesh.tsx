@@ -12,6 +12,7 @@ interface BrainMeshProps {
 
 function useRealBrainGeometry() {
   const [geometry, setGeometry] = useState<THREE.BufferGeometry | null>(null);
+  const geoRef = useRef<THREE.BufferGeometry | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -29,12 +30,18 @@ function useRealBrainGeometry() {
         geo.setIndex(new THREE.BufferAttribute(indices, 1));
         geo.computeVertexNormals();
 
+        geoRef.current?.dispose();
+        geoRef.current = geo;
         setGeometry(geo);
       })
       .catch((err) => {
         if (err.name !== "AbortError") console.error("Failed to load brain mesh:", err);
       });
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      geoRef.current?.dispose();
+      geoRef.current = null;
+    };
   }, []);
 
   return geometry;
@@ -52,7 +59,12 @@ export default function BrainMesh({
   const geometry = useRealBrainGeometry();
 
   useEffect(() => {
-    if (flashing) flashStartRef.current = performance.now();
+    if (flashing) {
+      flashStartRef.current = performance.now();
+    } else if (materialRef.current) {
+      materialRef.current.emissiveIntensity = 0;
+      flashStartRef.current = null;
+    }
   }, [flashing]);
 
   useFrame(() => {

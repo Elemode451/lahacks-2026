@@ -249,29 +249,29 @@ export default function Home() {
             ) : (
               <motion.div
                 className="absolute flex flex-col"
-                style={{ top: 44, left: 56, right: 56, bottom: 36 }}
+                style={{ top: 52, left: 64, right: 64, bottom: 48 }}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.2, duration: 0.3 }}
               >
                 {/* Header: "import:" left, icon tabs right */}
-                <div className="flex justify-between items-center mb-8">
+                <div className="flex justify-between items-center mb-10">
                   <h2 className="font-medium text-[#f95738] text-2xl tracking-[-0.96px]">import:</h2>
-                  <div className="flex gap-8 text-[#f95738] items-center">
+                  <div className="flex gap-10 text-[#f95738] items-center">
                     <button
-                      className={`transition-all duration-200 cursor-pointer p-1 ${importType === "file" ? "opacity-100 scale-110" : "opacity-50 hover:opacity-80"}`}
+                      className={`transition-all duration-200 cursor-pointer p-2.5 ${importType === "file" ? "opacity-100 scale-110" : "opacity-50 hover:opacity-80"}`}
                       onClick={() => setImportType("file")}
                     >
                       <FileIcon className="w-[26px] h-[30px]" />
                     </button>
                     <button
-                      className={`transition-all duration-200 cursor-pointer p-1 ${importType === "spotify" ? "opacity-100 scale-110" : "opacity-50 hover:opacity-80"}`}
+                      className={`transition-all duration-200 cursor-pointer p-2.5 ${importType === "spotify" ? "opacity-100 scale-110" : "opacity-50 hover:opacity-80"}`}
                       onClick={() => setImportType("spotify")}
                     >
                       <SpotifyIcon className="w-[30px] h-[30px]" />
                     </button>
                     <button
-                      className={`transition-all duration-200 cursor-pointer p-1 ${importType === "youtube" ? "opacity-100 scale-110" : "opacity-50 hover:opacity-80"}`}
+                      className={`transition-all duration-200 cursor-pointer p-2.5 ${importType === "youtube" ? "opacity-100 scale-110" : "opacity-50 hover:opacity-80"}`}
                       onClick={() => setImportType("youtube")}
                     >
                       <YouTubeIcon className="w-[34px] h-[24px]" />
@@ -289,7 +289,7 @@ export default function Home() {
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: 0.98 }}
                         transition={{ duration: 0.2 }}
-                        className="relative z-10 w-full flex-1 p-8 flex flex-col items-center justify-center text-[#f95738]"
+                        className="relative z-10 w-full flex-1 p-10 flex flex-col items-center justify-center text-[#f95738]"
                       >
                         <div className="absolute inset-0 rounded-[30px] border-4 border-[#f95738] border-dashed pointer-events-none opacity-50" />
                         <UploadIcon className="size-10 mb-4" />
@@ -350,7 +350,7 @@ export default function Home() {
                                       initial={{ opacity: 0, y: 10 }}
                                       animate={{ opacity: 1, y: 0 }}
                                       exit={{ opacity: 0, scale: 0.95 }}
-                                      className="bg-[rgba(249,87,56,0.15)] rounded-xl py-3 px-5 flex items-center justify-between group w-full"
+                                      className="bg-[rgba(249,87,56,0.15)] rounded-xl py-4 px-6 flex items-center justify-between group w-full"
                                     >
                                       <span className="text-[#f95738] font-medium truncate pr-4 text-base">
                                         {song}
@@ -374,13 +374,13 @@ export default function Home() {
                 </div>
 
                 {/* Bottom: song count + analyze button */}
-                <div className="mt-6 flex justify-between items-center shrink-0">
+                <div className="mt-8 flex justify-between items-center shrink-0">
                   <div className="text-[#f95738] font-medium text-lg tracking-tight">
                     {songs.length} {songs.length === 1 ? "song" : "songs"} added
                   </div>
                   <button
                     onClick={handleAnalyze}
-                    className="bg-[rgba(249,87,56,0.2)] hover:bg-[rgba(249,87,56,0.3)] transition-colors text-[#f95738] font-medium text-xl tracking-[-0.8px] py-2 px-8 rounded-full shadow-sm backdrop-blur-[16px] cursor-pointer"
+                    className="bg-[rgba(249,87,56,0.2)] hover:bg-[rgba(249,87,56,0.3)] transition-colors text-[#f95738] font-medium text-xl tracking-[-0.8px] py-3 px-10 rounded-full shadow-sm backdrop-blur-[16px] cursor-pointer"
                   >
                     analyze
                   </button>
