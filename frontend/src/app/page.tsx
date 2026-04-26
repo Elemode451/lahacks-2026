@@ -285,9 +285,8 @@ export default function Home() {
     seenSongIdsRef.current.clear();
   };
 
-  // Derive the cache lookup key from a SongInfo object.
-  // The backend caches songs under "spotify:<id>" or the YouTube URL,
-  // NOT the random song_{uuid} id.
+  // Extract the cache lookup key from a SongInfo object.
+  // The backend now includes lookup_key directly in SongInfo.
   const deriveCacheKey = useCallback(
     (songInfo: { lookup_key?: string | null; spotify_id?: string | null; song_id?: string }): string | null => {
       if (songInfo.lookup_key) return songInfo.lookup_key;

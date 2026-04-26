@@ -39,6 +39,7 @@ class KeyAnalysis(BaseModel):
 class SongInfo(BaseModel):
     song_id: str
     spotify_id: str | None = None
+    lookup_key: str | None = None
     title: str
     artist: str
     album_art_url: str | None = None
