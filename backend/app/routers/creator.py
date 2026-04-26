@@ -177,6 +177,7 @@ async def analyze_creator_track(
             "timeline_region_scores": song_fp.timeline_region_scores,
             "peak_segment": peak_seg,
             "summary": summary,
+            "emotional_profile": emotional_profile,
         }
         asyncio.get_running_loop().run_in_executor(
             None,

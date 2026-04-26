@@ -343,6 +343,7 @@ async def analyze_cluster(
             "pairwise_similarities": [p.model_dump() for p in pairwise],
             "summary": summary,
             "key_analysis": key_analysis.model_dump() if key_analysis else None,
+            "emotional_profile": emotional_profile,
         }
         saved = False
         try:
@@ -603,6 +604,7 @@ async def analyze_cluster_stream(
                 "pairwise_similarities": [p.model_dump() for p in pairwise],
                 "summary": summary,
                 "key_analysis": key_analysis.model_dump() if key_analysis else None,
+                "emotional_profile": emotional_profile,
             }
             saved = False
             try:
