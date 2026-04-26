@@ -15,9 +15,8 @@ import logging
 
 import numpy as np
 
-from app.models.schemas import RegionScores, SongInfo
+from app.models.schemas import RegionScores
 from app.services.tribe import (
-    N_VERTICES,
     TEMPORAL_RESAMPLE_N,
     SongFingerprints,
     resample_sequence,

@@ -117,7 +117,7 @@ async def get_similar(
 
     # Record these recommendations (non-blocking)
     if user_id and similar:
-        asyncio.get_event_loop().run_in_executor(
+        asyncio.get_running_loop().run_in_executor(
             None, record_recommendations, user_id,
             [{**r, "source": "brain_similarity"} for r in similar],
         )
@@ -165,7 +165,7 @@ async def get_collaborative(
 
     # Record these recommendations (non-blocking)
     if collab_results:
-        asyncio.get_event_loop().run_in_executor(
+        asyncio.get_running_loop().run_in_executor(
             None, record_recommendations, user_id, collab_results,
         )
 

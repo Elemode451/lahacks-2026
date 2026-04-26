@@ -90,37 +90,34 @@ def download_spotify_preview(url: str) -> Path | None:
         return None
 
 
-def get_audio_for_track(track: dict) -> Path:
-    """
-    1. Try Spotify preview
-    2. Fallback to YouTube (sync wrapper)
-    3. Fail only if both fail
+async def get_audio_for_track(track: dict) -> Path:
+    """Try Spotify preview, then fall back to YouTube.
+
+    This is an async function because the YouTube search helper is async.
     """
     import asyncio
 
-    # Spotify
     preview_url = track.get("preview_url")
 
     if preview_url:
         logger.info("Trying Spotify preview...")
-        path = download_spotify_preview(preview_url)
+        path = await asyncio.to_thread(download_spotify_preview, preview_url)
 
         if path:
             return path
 
         logger.info("Spotify failed, falling back to YouTube")
 
-    # YouTube — search_youtube_for_track is async, so we need to run it
     from app.services.spotify import search_youtube_for_track
 
-    youtube_url = asyncio.run(search_youtube_for_track(
+    youtube_url = await search_youtube_for_track(
         track.get("name", ""),
         track.get("artist", ""),
-    ))
+    )
 
     if youtube_url:
         logger.info("Trying YouTube fallback...")
-        return download_youtube_audio(youtube_url)
+        return await asyncio.to_thread(download_youtube_audio, youtube_url)
 
     raise RuntimeError("No audio source found (Spotify + YouTube failed)")
 

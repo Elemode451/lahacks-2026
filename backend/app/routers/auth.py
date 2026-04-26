@@ -5,9 +5,9 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from supabase import create_client
+
+from app.rate_limit import limiter
 
 from app.config import settings
 from app.models.schemas import AuthResponse, LoginRequest, SignUpRequest, SyncProfileResponse
@@ -28,8 +28,6 @@ def _ephemeral_client():
         raise HTTPException(503, "Authentication service not configured")
     return create_client(settings.supabase_url, settings.supabase_key)
 
-
-limiter = Limiter(key_func=get_remote_address)
 
 
 @router.post("/signup", response_model=AuthResponse)

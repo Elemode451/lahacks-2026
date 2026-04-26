@@ -5,9 +5,9 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from slowapi import Limiter
 from slowapi.middleware import SlowAPIMiddleware
-from slowapi.util import get_remote_address
+
+from app.rate_limit import limiter
 
 from app.config import settings
 from app.routers import analyses, auth, clusters, creator, recommend, spotify_router
@@ -41,7 +41,6 @@ app.add_middleware(
 )
 
 # Rate limiting
-limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_middleware(SlowAPIMiddleware)
 

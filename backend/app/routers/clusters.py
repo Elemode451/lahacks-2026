@@ -436,7 +436,7 @@ async def analyze_cluster_stream(
                         "cached": cached,
                     })
 
-                except Exception as exc:
+                except Exception:
                     logger.exception("Failed to process song: %s", cluster_song.model_dump())
                     yield _sse_event("song_error", {
                         "song": f"{artist} - {title}",
