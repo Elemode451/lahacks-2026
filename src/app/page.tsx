@@ -317,7 +317,7 @@ export default function Home() {
                                   : "Paste YouTube video URL..."
                               }
                               className="w-full bg-[rgba(249,87,56,0.06)] border border-[rgba(249,87,56,0.2)] focus:border-[#f95738] rounded-full text-[#f95738] placeholder-[rgba(249,87,56,0.35)] outline-none text-sm transition-colors"
-                              style={{ padding: "20px 64px 20px 32px" }}
+                              style={{ padding: "13px 64px 13px 32px" }}
                             />
                             <button
                               type="submit"
@@ -328,7 +328,7 @@ export default function Home() {
                           </div>
                         </form>
 
-                        <div className="flex-1 overflow-y-auto mt-4 w-full custom-scrollbar flex flex-col items-center">
+                        <div className="flex-1 overflow-y-auto mt-3 w-full custom-scrollbar flex flex-col items-center">
                           <div className="w-full h-full pb-4">
                             <AnimatePresence>
                               {songs.length === 0 ? (
@@ -352,7 +352,7 @@ export default function Home() {
                                       animate={{ opacity: 1, y: 0 }}
                                       exit={{ opacity: 0, scale: 0.95 }}
                                       className="bg-[rgba(249,87,56,0.08)] border border-[rgba(249,87,56,0.2)] rounded-full flex items-center justify-between group w-full"
-                                      style={{ padding: "20px 32px" }}
+                                      style={{ padding: "13px 32px" }}
                                     >
                                       <span className="text-[#f95738] font-medium truncate pr-4 text-sm">
                                         {song}
