@@ -119,7 +119,7 @@ export default function AudioTimeline({
     [barCount, controlled, onSegmentChange],
   );
 
-  const position = activeIndex / (barCount - 1);
+  const position = barCount > 1 ? activeIndex / (barCount - 1) : 0;
 
   return (
     <div className={`flex flex-col gap-2 w-full ${className}`}>
