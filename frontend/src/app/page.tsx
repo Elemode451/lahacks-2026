@@ -433,6 +433,7 @@ export default function Home() {
               <div className="flex-1 min-h-0 flex gap-4 mt-4">
                 <ChatInterface
                   overview={overviewText}
+                  analysisResult={analysisResult}
                   className="flex-1 min-w-0"
                 />
                 <SongRecommendations className="w-[40%] shrink-0" />
