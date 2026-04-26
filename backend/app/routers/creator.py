@@ -10,12 +10,12 @@ import uuid
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
 
 import numpy as np
-from app.models.schemas import AnalysisSummary, CreatorAnalyzeResponse, KeyInfo, SongInfo
+from app.models.schemas import AnalysisSummary, CreatorAnalyzeResponse, KeyInfo, SongInfo, SongMatch
 from app.services.spotify import get_audio_features
 from app.services.music_theory import key_name, mood_for_key
 from app.services.audio import cleanup_audio, save_uploaded_audio
 from app.services.emotions import map_region_scores_to_emotions
-from app.services.song_cache import record_user_interaction, save_analysis, store_cached
+from app.services.song_cache import find_similar_songs, record_user_interaction, save_analysis, store_cached
 from app.services.tribe import (
     _average_timelines,
     _resample_raw,
@@ -128,8 +128,32 @@ async def analyze_creator_track(
             f"Peak activation occurs at segment {peak_seg}. {vibe}"
         )
 
-        # TODO: find top matches from catalog DB
-        top_matches = []
+        # Compute lookup key early so we can exclude ourselves from similar songs
+        lookup_key = _upload_lookup_key(audio.filename or "upload.wav", file_bytes)
+
+        # Find similar songs from the catalog
+        try:
+            similar, _total = await asyncio.to_thread(
+                find_similar_songs,
+                song_fp.region_scores,
+                exclude_key=lookup_key,
+                n=10,
+            )
+            top_matches = [
+                SongMatch(
+                    song=SongInfo(
+                        song_id=s["lookup_key"],
+                        title=s["title"],
+                        artist=s["artist"],
+                    ),
+                    similarity_score=s["similarity"],
+                    source="brain_similarity",
+                )
+                for s in similar
+            ]
+        except Exception:
+            logger.warning("Failed to find similar songs for creator upload")
+            top_matches = []
 
         result = CreatorAnalyzeResponse(
             analysis_id=analysis_id,
@@ -150,7 +174,6 @@ async def analyze_creator_track(
         )
 
         # Persist to song_cache so the recommendation engine can find it
-        lookup_key = _upload_lookup_key(audio.filename or "upload.wav", file_bytes)
         try:
             await asyncio.to_thread(
                 store_cached,

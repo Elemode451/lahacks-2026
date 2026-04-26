@@ -437,12 +437,23 @@ export default function Home() {
       setProcessingProgress(1);
       setBrainFlashing(false);
       setViewState("analysis");
+
+      // Fetch recommendations for the creator's uploaded track
+      const songData = result.song as { song_id?: string; spotify_id?: string } | undefined;
+      if (songData) {
+        const cacheKey = songData.spotify_id
+          ? `spotify:${songData.spotify_id}`
+          : songData.song_id;
+        if (cacheKey) {
+          fetchRecommendations(cacheKey);
+        }
+      }
     } catch (err) {
       setProcessingStatus(`Failed: ${err instanceof Error ? err.message : "Unknown error"}`);
       setBrainFlashing(false);
       setViewState("importing");
     }
-  }, [uploadedFiles, session]);
+  }, [uploadedFiles, session, fetchRecommendations]);
 
   // ── Real API: Listener Mode (Spotify/YouTube links) ──
   const handleListenerAnalyze = useCallback(async () => {
@@ -580,12 +591,56 @@ export default function Home() {
 
   useEffect(() => () => cancelAnalyzeTimeout(), []);
 
-  // Build overview text from analysis result
-  const overviewText = analysisResult
-    ? (analysisResult as Record<string, unknown>).summary as string ??
-      (analysisResult as Record<string, unknown>).vibe_description as string ??
-      "This music fits a limbic-dominant profile with strong auditory cortex engagement. High introspective alignment suggests deep default-mode network resonance characteristic of emotional processing music."
-    : "This music fits a limbic-dominant profile with strong auditory cortex engagement. High introspective alignment suggests deep default-mode network resonance characteristic of emotional processing music.";
+  // Build overview text from analysis result, enriched with brain regions and emotions
+  const overviewText = useMemo(() => {
+    const fallback =
+      "This music fits a limbic-dominant profile with strong auditory cortex engagement. High introspective alignment suggests deep default-mode network resonance characteristic of emotional processing music.";
+    if (!analysisResult) return fallback;
+
+    const regionLabels: Record<string, string> = {
+      auditory: "auditory cortex",
+      superior_temporal: "superior temporal gyrus",
+      temporo_parietal: "temporo-parietal junction",
+      inferior_frontal: "inferior frontal cortex",
+      multisensory: "multisensory integration areas",
+    };
+
+    // Build brain-region activation sentence from the top activated regions
+    const scores = (analysisResult.combined_region_scores ?? analysisResult.region_scores) as
+      | Record<string, number>
+      | undefined;
+    let regionSentence = "";
+    if (scores) {
+      const ranked = Object.entries(scores)
+        .filter(([k, v]) => k !== "whole_cortex" && typeof v === "number")
+        .sort(([, a], [, b]) => b - a);
+      const topRegions = ranked.slice(0, 3).map(([k]) => regionLabels[k] ?? k.replace(/_/g, " "));
+      if (topRegions.length > 0) {
+        regionSentence = `This track most strongly activates the ${topRegions.join(", ")}.`;
+      }
+    }
+
+    // Emotional profile sentence
+    const emotionalProfile = analysisResult.emotional_profile as
+      | { summary?: string; dominant_emotions?: string[] }
+      | undefined;
+    let emotionSentence = "";
+    if (emotionalProfile?.summary) {
+      emotionSentence = emotionalProfile.summary;
+    } else if (emotionalProfile?.dominant_emotions?.length) {
+      const emos = emotionalProfile.dominant_emotions.map((e) => e.toLowerCase());
+      const emotionList =
+        emos.length <= 2
+          ? emos.join(" and ")
+          : `${emos.slice(0, -1).join(", ")}, and ${emos[emos.length - 1]}`;
+      emotionSentence = `The primary predicted emotional responses are ${emotionList}.`;
+    }
+
+    // Compose: brain regions first (most interesting), then emotions, then vibe
+    const vibe = (analysisResult.vibe_description as string | undefined) ?? "";
+    const parts = [regionSentence, emotionSentence, vibe].filter(Boolean);
+    return parts.length > 0 ? parts.join(" ") : fallback;
+  }, [analysisResult]);
 
   if (loading || !user) {
     return (

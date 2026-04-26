@@ -331,12 +331,19 @@ def save_analysis(
 
 
 def record_user_interaction(user_id: str, song_key: str, interaction_type: str = "analyzed") -> None:
-    """Record that a user interacted with a song (analyzed, saved, etc.)."""
-    client = _get_client()
-    if client is None:
+    """Record that a user interacted with a song (analyzed, saved, etc.).
+
+    Uses the admin (service-role) client to bypass RLS policies on the
+    user_song_interactions table.
+    """
+    try:
+        from app.services.supabase_client import get_supabase_admin
+        admin = get_supabase_admin()
+    except Exception:
+        logger.warning("Supabase admin not configured — skipping interaction tracking")
         return
     try:
-        client.table("user_song_interactions").upsert(
+        admin.table("user_song_interactions").upsert(
             {"user_id": user_id, "song_key": song_key, "interaction_type": interaction_type},
             on_conflict="user_id,song_key,interaction_type",
         ).execute()

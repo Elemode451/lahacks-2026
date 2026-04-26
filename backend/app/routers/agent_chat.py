@@ -86,11 +86,23 @@ def _build_context(analysis: Any) -> str:
     if not analysis or not isinstance(analysis, dict):
         return ""
 
-    parts: list[str] = ["\n\n## Current Song Analysis"]
+    parts: list[str] = []
 
-    song = analysis.get("song")
-    if song:
+    # Detect whether this is a single-song (creator) or multi-song (cluster) analysis
+    song = analysis.get("song")  # creator mode: single song
+    songs = analysis.get("songs")  # cluster mode: list of songs
+    is_creator = song is not None and not songs
+
+    if is_creator:
+        parts.append("\n\n## Your Track Analysis (Creator Mode — single song)")
         parts.append(f"Track: {song.get('title', 'Unknown')} by {song.get('artist', 'Unknown')}")
+    elif songs and isinstance(songs, list):
+        parts.append(f"\n\n## Playlist Analysis ({len(songs)} songs combined)")
+        song_list = [f"{s.get('title', 'Unknown')} by {s.get('artist', 'Unknown')}" for s in songs if isinstance(s, dict)]
+        parts.append("Songs analyzed: " + "; ".join(song_list))
+        parts.append("Note: The region scores below are AGGREGATED across all songs, not from a single track.")
+    else:
+        parts.append("\n\n## Current Song Analysis")
 
     scores = analysis.get("region_scores") or analysis.get("combined_region_scores")
     if scores and isinstance(scores, dict):
