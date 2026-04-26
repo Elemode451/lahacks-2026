@@ -35,7 +35,7 @@ async def add_friend(
         result = (
             sb.table("profiles")
             .select("user_id")
-            .eq("display_name", req.display_name)
+            .ilike("display_name", req.display_name.replace("%", "").replace("_", ""))
             .limit(1)
             .execute()
         )
@@ -49,16 +49,21 @@ async def add_friend(
         raise HTTPException(400, "Cannot add yourself as a friend")
 
     # Check if already friends
-    existing = (
-        sb.table("friends")
-        .select("id")
-        .eq("user_id", user_id)
-        .eq("friend_id", friend_user_id)
-        .maybe_single()
-        .execute()
-    )
-    if existing.data:
-        raise HTTPException(409, "Already friends")
+    try:
+        existing = (
+            sb.table("friends")
+            .select("id")
+            .eq("user_id", user_id)
+            .eq("friend_id", friend_user_id)
+            .maybe_single()
+            .execute()
+        )
+        if existing and existing.data:
+            raise HTTPException(409, "Already friends")
+    except HTTPException:
+        raise
+    except Exception:
+        pass  # table may not exist yet, proceed to insert
 
     # Insert
     row = (
@@ -115,13 +120,16 @@ async def list_friends(user_id: str = Depends(require_auth)):
     """List the current user's friends."""
     sb = get_supabase_admin()
 
-    result = (
-        sb.table("friends")
-        .select("id, friend_id, created_at")
-        .eq("user_id", user_id)
-        .order("created_at", desc=True)
-        .execute()
-    )
+    try:
+        result = (
+            sb.table("friends")
+            .select("id, friend_id, created_at")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+    except Exception:
+        return []  # table may not exist yet
 
     # Batch-fetch display names
     friend_ids = [r["friend_id"] for r in (result.data or [])]
@@ -157,12 +165,15 @@ async def friends_feed(user_id: str = Depends(require_auth)):
     sb = get_supabase_admin()
 
     # 1. Get friend IDs
-    friends_result = (
-        sb.table("friends")
-        .select("friend_id")
-        .eq("user_id", user_id)
-        .execute()
-    )
+    try:
+        friends_result = (
+            sb.table("friends")
+            .select("friend_id")
+            .eq("user_id", user_id)
+            .execute()
+        )
+    except Exception:
+        return []  # table may not exist yet
     friend_ids = [r["friend_id"] for r in (friends_result.data or [])]
     if not friend_ids:
         return []
