@@ -10,7 +10,14 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.models.schemas import CreatorAnalyzeResponse, SongInfo
 from app.services.audio import cleanup_audio, save_uploaded_audio
-from app.services.tribe import analyze_audio
+from app.services.tribe import (
+    _region_scores_dict,
+    analyze_audio,
+    describe_vibe,
+    encode_fingerprint_b64,
+    encode_temporal_b64,
+    resample_sequence,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/creator", tags=["creator"])
@@ -55,11 +62,15 @@ async def analyze_creator_track(
 
         analysis_id = f"analysis_{uuid.uuid4().hex[:12]}"
 
-        # TODO: generate brain visualization frames server-side
-        frames: list[str] = []
+        # Encode fingerprints for brain visualization (same as cluster mode)
+        fp_b64 = encode_fingerprint_b64(song_fp.global_fingerprint)
+        temporal_resampled = resample_sequence(song_fp.temporal_fingerprints)
+        temporal_b64 = encode_temporal_b64(temporal_resampled)
 
-        # TODO: find top matches from catalog DB
-        top_matches = []
+        # Resampled timeline (30 segments, matching temporal_fingerprints_b64)
+        combined_timeline = [_region_scores_dict(seg) for seg in temporal_resampled]
+
+        vibe = describe_vibe(song_fp.region_scores)
 
         # Generate summary
         top_regions = sorted(
@@ -75,8 +86,11 @@ async def analyze_creator_track(
         summary = (
             f"This track is predicted to strongly engage "
             f"{', '.join(region_names[:2])} regions. "
-            f"Peak activation occurs at segment {song_fp.peak_index}."
+            f"Peak activation occurs at segment {song_fp.peak_index}. {vibe}"
         )
+
+        # TODO: find top matches from catalog DB
+        top_matches = []
 
         result = CreatorAnalyzeResponse(
             analysis_id=analysis_id,
@@ -85,9 +99,14 @@ async def analyze_creator_track(
             region_scores=song_fp.region_scores,
             timeline_region_scores=song_fp.timeline_region_scores,
             peak_segment=song_fp.peak_index,
-            frames=frames,
+            frames=[],
             top_matches=top_matches,
             summary=summary,
+            combined_fingerprint_b64=fp_b64,
+            temporal_fingerprints_b64=temporal_b64,
+            combined_region_scores=song_fp.region_scores,
+            combined_timeline=combined_timeline,
+            vibe_description=vibe,
         )
 
         # Store in memory (not DB) so the user can retrieve it during the session
