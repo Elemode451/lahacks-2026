@@ -934,7 +934,7 @@ export default function Home() {
 
                 {/* Right panel: Creator → Sounds Similar To / Listener → Discover */}
                 <div className="glass-card px-5 py-4 w-[40%] shrink-0 flex flex-col">
-                  {isCreatorMode ? (
+                  {isCreatorMode && topMatches && topMatches.length > 0 ? (
                     <>
                       <div className="flex items-center gap-2 mb-3">
                         <Music className="w-3.5 h-3.5 text-[#0d3b66]/40" />
