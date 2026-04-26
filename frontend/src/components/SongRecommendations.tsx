@@ -24,9 +24,9 @@ function sourceLabel(source: string): string {
   return "brain match";
 }
 
-function sourceColor(source: string): string {
-  if (source === "collaborative") return "rgba(238,150,75,0.5)";
-  return "rgba(249,87,56,0.5)";
+function sourceColor(source: string): { text: string; bg: string } {
+  if (source === "collaborative") return { text: "rgba(238,150,75,0.5)", bg: "rgba(238,150,75,0.08)" };
+  return { text: "rgba(249,87,56,0.5)", bg: "rgba(249,87,56,0.08)" };
 }
 
 export default function SongRecommendations({
@@ -108,8 +108,8 @@ export default function SongRecommendations({
                 <span
                   className="text-[8px] uppercase tracking-wider shrink-0 px-2 py-0.5 rounded-full font-medium transition-all duration-200 group-hover:opacity-100 opacity-60"
                   style={{
-                    color: sourceColor(song.source),
-                    backgroundColor: `${sourceColor(song.source)}15`,
+                    color: sourceColor(song.source).text,
+                    backgroundColor: sourceColor(song.source).bg,
                   }}
                 >
                   {sourceLabel(song.source)}
