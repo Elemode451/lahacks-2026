@@ -347,119 +347,117 @@ async def analyze_cluster_stream(
         audio_paths: list = []
         user_id = _try_get_user_id(authorization)
 
-        for idx, cluster_song in enumerate(all_cluster_songs):
-            # Check if client disconnected
-            if await request.is_disconnected():
-                logger.info("Client disconnected, stopping stream")
-                return
+        try:
+            for idx, cluster_song in enumerate(all_cluster_songs):
+                # Check if client disconnected
+                if await request.is_disconnected():
+                    logger.info("Client disconnected, stopping stream")
+                    return
 
-            title = cluster_song.title or "Unknown"
-            artist = cluster_song.artist or "Unknown"
+                title = cluster_song.title or "Unknown"
+                artist = cluster_song.artist or "Unknown"
 
-            yield _sse_event("progress", {
-                "song": f"{artist} - {title}",
-                "index": idx + 1,
-                "total": total,
-                "status": "starting",
-            })
+                yield _sse_event("progress", {
+                    "song": f"{artist} - {title}",
+                    "index": idx + 1,
+                    "total": total,
+                    "status": "starting",
+                })
 
-            try:
-                youtube_url = cluster_song.youtube_url
+                try:
+                    youtube_url = cluster_song.youtube_url
 
-                if cluster_song.spotify_id:
-                    info = await get_track_info(cluster_song.spotify_id)
-                    if info:
-                        title = info.title
-                        artist = info.artist
+                    if cluster_song.spotify_id:
+                        info = await get_track_info(cluster_song.spotify_id)
+                        if info:
+                            title = info.title
+                            artist = info.artist
+                        if not youtube_url:
+                            youtube_url = await search_youtube_for_track(title, artist)
+
                     if not youtube_url:
-                        youtube_url = await search_youtube_for_track(title, artist)
+                        yield _sse_event("song_error", {
+                            "song": f"{artist} - {title}",
+                            "index": idx + 1,
+                            "total": total,
+                            "error": "No audio source found",
+                        })
+                        continue
 
-                if not youtube_url:
+                    cache_key = make_lookup_key(
+                        youtube_url=youtube_url,
+                        spotify_id=cluster_song.spotify_id,
+                    )
+
+                    song_fp = None
+                    cached = False
+                    if cache_key and not settings.use_mock_tribe:
+                        song_fp = await asyncio.to_thread(get_cached, cache_key)
+                        if song_fp:
+                            cached = True
+
+                    if song_fp is None:
+                        yield _sse_event("progress", {
+                            "song": f"{artist} - {title}",
+                            "index": idx + 1,
+                            "total": total,
+                            "status": "downloading",
+                        })
+                        audio_path = await asyncio.to_thread(
+                            download_youtube_audio, youtube_url
+                        )
+                        audio_paths.append(audio_path)
+
+                        yield _sse_event("progress", {
+                            "song": f"{artist} - {title}",
+                            "index": idx + 1,
+                            "total": total,
+                            "status": "analyzing",
+                        })
+                        song_fp = await analyze_audio(
+                            audio_path,
+                            cache_key=cache_key,
+                            title=title,
+                            artist=artist,
+                        )
+
+                    song_id = f"song_{uuid.uuid4().hex[:12]}"
+                    song_info = SongInfo(
+                        song_id=song_id,
+                        spotify_id=cluster_song.spotify_id,
+                        title=title,
+                        artist=artist,
+                    )
+                    songs.append(song_info)
+                    fingerprints.append(song_fp)
+
+                    if user_id and cache_key:
+                        asyncio.get_event_loop().run_in_executor(
+                            None, record_user_interaction, user_id, cache_key,
+                        )
+
+                    yield _sse_event("song_complete", {
+                        "song": f"{artist} - {title}",
+                        "index": idx + 1,
+                        "total": total,
+                        "cached": cached,
+                    })
+
+                except Exception as exc:
+                    logger.exception("Failed to process song: %s", cluster_song.model_dump())
                     yield _sse_event("song_error", {
                         "song": f"{artist} - {title}",
                         "index": idx + 1,
                         "total": total,
-                        "error": "No audio source found",
+                        "error": str(exc),
                     })
                     continue
 
-                cache_key = make_lookup_key(
-                    youtube_url=youtube_url,
-                    spotify_id=cluster_song.spotify_id,
-                )
+            # ── Build final response ────────────────────────────────────
+            if not songs:
+                yield _sse_event("error", {"message": "Could not process any songs"})
+                return
 
-                song_fp = None
-                cached = False
-                if cache_key and not settings.use_mock_tribe:
-                    song_fp = await asyncio.to_thread(get_cached, cache_key)
-                    if song_fp:
-                        cached = True
-
-                if song_fp is None:
-                    yield _sse_event("progress", {
-                        "song": f"{artist} - {title}",
-                        "index": idx + 1,
-                        "total": total,
-                        "status": "downloading",
-                    })
-                    audio_path = await asyncio.to_thread(
-                        download_youtube_audio, youtube_url
-                    )
-                    audio_paths.append(audio_path)
-
-                    yield _sse_event("progress", {
-                        "song": f"{artist} - {title}",
-                        "index": idx + 1,
-                        "total": total,
-                        "status": "analyzing",
-                    })
-                    song_fp = await analyze_audio(
-                        audio_path,
-                        cache_key=cache_key,
-                        title=title,
-                        artist=artist,
-                    )
-
-                song_id = f"song_{uuid.uuid4().hex[:12]}"
-                song_info = SongInfo(
-                    song_id=song_id,
-                    spotify_id=cluster_song.spotify_id,
-                    title=title,
-                    artist=artist,
-                )
-                songs.append(song_info)
-                fingerprints.append(song_fp)
-
-                if user_id and cache_key:
-                    asyncio.get_event_loop().run_in_executor(
-                        None, record_user_interaction, user_id, cache_key,
-                    )
-
-                yield _sse_event("song_complete", {
-                    "song": f"{artist} - {title}",
-                    "index": idx + 1,
-                    "total": total,
-                    "cached": cached,
-                })
-
-            except Exception as exc:
-                logger.exception("Failed to process song: %s", cluster_song.model_dump())
-                yield _sse_event("song_error", {
-                    "song": f"{artist} - {title}",
-                    "index": idx + 1,
-                    "total": total,
-                    "error": str(exc),
-                })
-                continue
-
-        # ── Build final response ────────────────────────────────────────
-        if not songs:
-            yield _sse_event("error", {"message": "Could not process any songs"})
-            for p in audio_paths:
-                cleanup_audio(p)
-            return
-
-        try:
             combined = aggregate_fingerprints(fingerprints)
             combined_fp_b64 = encode_fingerprint_b64(combined.global_fingerprint)
             temporal_resampled = resample_sequence(combined.temporal_fingerprints)
