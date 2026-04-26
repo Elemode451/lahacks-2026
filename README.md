@@ -1,12 +1,12 @@
-# NAME TBD -- working name: Resonance
+# Seratone
 
 **Music discovery through predicted brain-response similarity.**
 
-Resonance helps listeners find songs that *feel the same* by comparing music in predicted cortical-response space instead of relying on genre, artist, or listening history.
+Seratone helps listeners find songs that *feel the same* by comparing music in predicted cortical-response space instead of relying on genre, artist, or listening history.
 
-Users upload a small group of songs that share a similar vibe. Resonance uses TRIBE v2, a brain-encoding model, to generate a predicted cortical-response fingerprint for each song. It then measures how coherent that group is and recommends new songs with similar predicted response patterns.
+Users upload a small group of songs that share a similar vibe. Seratone uses TRIBE v2, a brain-encoding model, to generate a predicted cortical-response fingerprint for each song. It then measures how coherent that group is and recommends new songs with similar predicted response patterns.
 
-Resonance also includes **Creator Mode**, where artists can upload their own music, visualize its predicted cortical-response profile, and compare it against songs in our database.
+Seratone also includes **Creator Mode**, where artists can upload their own music, visualize its predicted cortical-response profile, and compare it against songs in our database.
 
 ## What It Does
 
@@ -25,7 +25,7 @@ Resonance also includes **Creator Mode**, where artists can upload their own mus
 - Compare the track against songs in our database // songs that have been previously uploaded
 - Discover which existing songs are closest in predicted response space.
 
-## Why Resonance
+## Why Seratone
 
 Most recommendation systems use metadata:
 
@@ -37,7 +37,7 @@ Most recommendation systems use metadata:
 
 But people often like songs for reasons they cannot explain. Two songs can come from totally different artists, genres, languages, or eras and still hit the same emotional space.
 
-Resonance explores a different question:
+Seratone explores a different question:
 
 > What if we recommended music by predicted brain-response similarity?
 > How can artists use a cortical response to motivate production choices?
