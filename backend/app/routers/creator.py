@@ -47,8 +47,10 @@ async def analyze_creator_track(
     Returns the same TRIBE v2 analysis as listener mode: global fingerprint,
     temporal fingerprints, peak fingerprint, region scores, and timeline.
     """
-    if audio.content_type and not audio.content_type.startswith("audio/"):
-        raise HTTPException(400, f"Expected audio file, got {audio.content_type}")
+    ct = audio.content_type or ""
+    allowed_prefixes = ("audio/", "video/", "application/octet-stream", "application/ogg")
+    if ct and not any(ct.startswith(p) for p in allowed_prefixes):
+        raise HTTPException(400, f"Expected audio file, got {ct}")
 
     file_bytes = await audio.read()
     if len(file_bytes) == 0:

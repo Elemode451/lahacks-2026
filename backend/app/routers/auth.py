@@ -136,7 +136,7 @@ async def sync_profile(user_id: str = Depends(require_auth)):
         .maybe_single()
         .execute()
     )
-    if existing.data and existing.data.get("display_name"):
+    if existing and existing.data and existing.data.get("display_name"):
         return SyncProfileResponse(display_name=existing.data["display_name"])
 
     # Pull name from provider metadata
