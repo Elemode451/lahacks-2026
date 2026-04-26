@@ -330,8 +330,6 @@ async def batch_events(batch_id: str, request: Request):
         if batch["done"] and q.empty():
             return
         while True:
-            if await request.is_disconnected():
-                return
             try:
                 event = await asyncio.wait_for(q.get(), timeout=30.0)
             except asyncio.TimeoutError:
