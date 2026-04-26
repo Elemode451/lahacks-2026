@@ -182,6 +182,7 @@ async def friends_feed(user_id: str = Depends(require_auth)):
         sb.table("user_song_interactions")
         .select("user_id, song_key, interaction_type, created_at")
         .in_("user_id", friend_ids)
+        .neq("interaction_type", "recommended")
         .order("created_at", desc=True)
         .limit(50)
         .execute()

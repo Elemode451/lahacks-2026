@@ -3,7 +3,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import dynamic from "next/dynamic";
-import { X, Send, LogOut, Clock, Music, Brain, MessageCircle, Radio, Share2, Check } from "lucide-react";
+import { X, Send, LogOut, Clock, Music, Brain, MessageCircle, Radio, Share2, Check, Users } from "lucide-react";
 import {
   SeratoneLogo,
   SoundBarsIcon,
@@ -50,6 +50,7 @@ export default function Home() {
   const router = useRouter();
 
   const [viewState, setViewState] = useState<ViewState>("intro");
+  const [showFriends, setShowFriends] = useState(false);
   const [importType, setImportType] = useState<ImportType>("file");
   const [songs, setSongs] = useState<string[]>([]);
   const [inputValue, setInputValue] = useState("");
@@ -241,6 +242,14 @@ export default function Home() {
       panelH: Math.min(contentH * 0.88, 650),
       panelX: (vw - Math.min(vw * 0.72, 920)) / 2,
       panelY: TOPBAR_H + (contentH - Math.min(contentH * 0.88, 650)) / 2,
+      friendsPillW: 140,
+      friendsPillH: 50,
+      friendsPillX: vw * 0.7 - 160,
+      friendsPillY: TOPBAR_H - 25,
+      friendsPanelW: Math.min(vw * 0.42, 480),
+      friendsPanelH: Math.min(contentH * 0.78, 550),
+      friendsPanelX: 32,
+      friendsPanelY: TOPBAR_H + (contentH - Math.min(contentH * 0.78, 550)) / 2,
       rightPanelW: halfW,
     };
   }, [vw, vh]);
@@ -1109,30 +1118,87 @@ export default function Home() {
         )}
       </AnimatePresence>
 
-      {/* Friends Activity — visible on intro before import */}
+      {/* Friends Button / Panel — pill-to-panel like import, on the left */}
       <AnimatePresence>
-        {viewState === "intro" && (
+        {(viewState === "intro" || showFriends) && !["processing", "analyzing", "analysis"].includes(viewState) && (
           <motion.div
-            className="absolute z-20"
-            style={{
-              right: "clamp(32px, 4vw, 64px)",
-              top: TOPBAR_H + 24,
-              width: "clamp(260px, 22vw, 340px)",
+            className="absolute bg-[rgba(13,59,102,0.08)] overflow-hidden z-20 shadow-sm backdrop-blur-[40px] border border-[rgba(13,59,102,0.15)]"
+            initial={false}
+            animate={{
+              width: showFriends ? layout.friendsPanelW : layout.friendsPillW,
+              height: showFriends ? layout.friendsPanelH : layout.friendsPillH,
+              x: showFriends ? layout.friendsPanelX : layout.friendsPillX,
+              y: showFriends ? layout.friendsPanelY : layout.friendsPillY,
+              borderRadius: showFriends ? 50 : 100,
+              opacity: 1,
+              scale: 1,
             }}
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8, transition: { duration: 0.2 } }}
-            transition={{ duration: 0.5, delay: 0.6 }}
+            exit={{
+              opacity: 0,
+              scale: 0.95,
+              transition: { duration: 0.4 },
+            }}
+            transition={{
+              type: "spring",
+              stiffness: 300,
+              damping: 30,
+              mass: 1.5,
+            }}
+            style={{ transformOrigin: "center" }}
           >
-            <div className="bg-[rgba(255,253,245,0.85)] backdrop-blur-xl border border-[rgba(13,59,102,0.06)] rounded-3xl p-4 shadow-[0_4px_24px_rgba(13,59,102,0.04)]">
-              <FriendsActivity
-                token={session?.access_token ?? null}
-                onSongClick={handleFriendSongClick}
-              />
-            </div>
+            {!showFriends ? (
+              <motion.button
+                className="w-full h-full flex items-center justify-center gap-3 text-[#0d3b66]/60 hover:bg-[rgba(13,59,102,0.08)] transition-colors cursor-pointer"
+                onClick={() => setShowFriends(true)}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0, transition: { duration: 0.1 } }}
+                whileHover={{ scale: 1.04 }}
+                whileTap={{ scale: 0.96 }}
+              >
+                <span className="font-semibold text-xl tracking-[-0.8px]" style={{ fontFamily: "var(--font-display)" }}>friends</span>
+                <Users className="size-5" />
+              </motion.button>
+            ) : (
+              <motion.div
+                className="absolute flex flex-col"
+                style={{ top: "7.4%", left: "8.7%", right: "8.9%", bottom: "7.2%" }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.2, duration: 0.3 }}
+              >
+                <div className="flex justify-between items-start mb-4">
+                  <h2 className="text-[#0d3b66]/70 text-[clamp(18px,2vw,26px)] tracking-[-1px] leading-none" style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}>friends:</h2>
+                  <motion.button
+                    className="text-[#0d3b66]/30 hover:text-[#0d3b66]/60 transition-colors p-1 rounded-lg cursor-pointer"
+                    onClick={() => setShowFriends(false)}
+                    whileTap={{ scale: 0.9 }}
+                  >
+                    <X className="w-4 h-4" />
+                  </motion.button>
+                </div>
+                <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+                  <FriendsActivity
+                    token={session?.access_token ?? null}
+                    onSongClick={(songKey, title, artist) => {
+                      setShowFriends(false);
+                      handleFriendSongClick(songKey, title, artist);
+                    }}
+                  />
+                </div>
+              </motion.div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Click Outside Overlay — dismiss friends panel */}
+      {showFriends && (
+        <div
+          className="absolute inset-0 z-[15]"
+          onClick={() => setShowFriends(false)}
+        />
+      )}
 
       {/* Import Button / Panel — spring expansion */}
       <AnimatePresence>
@@ -1165,7 +1231,7 @@ export default function Home() {
             {viewState === "intro" ? (
               <motion.button
                 className="w-full h-full flex items-center justify-center gap-3 text-[#f95738] hover:bg-[rgba(249,87,56,0.3)] transition-colors cursor-pointer"
-                onClick={() => setViewState("importing")}
+                onClick={() => { setShowFriends(false); setViewState("importing"); }}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0, transition: { duration: 0.1 } }}
