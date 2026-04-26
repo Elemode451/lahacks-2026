@@ -8,6 +8,7 @@ When False, calls the TRIBE inference worker API.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import gzip
 import io
@@ -140,8 +141,12 @@ def derive_fingerprints(preds: np.ndarray) -> SongFingerprints:
 
 
 _POLL_INTERVAL_S = 5       # seconds between /status polls
-_POLL_TIMEOUT_S = 600      # max wait for a single job
 _SUBMIT_RETRIES = 3        # retry /submit on transient errors
+
+# In-flight background tasks keyed by cache_key so polling survives
+# client disconnects.  Each value is an asyncio.Task whose result is
+# SongFingerprints (or raises on failure).
+_inflight: dict[str, asyncio.Task] = {}
 
 
 async def _submit_and_poll(audio_path: Path) -> dict:
@@ -150,21 +155,24 @@ async def _submit_and_poll(audio_path: Path) -> dict:
     Uses POST /submit (returns immediately) + GET /status/{job_id}
     to avoid Cloudflare's 100-second proxy timeout on free tunnels.
     """
-    import asyncio
     import httpx
 
     worker = settings.tribe_worker_url
+
+    # Read file into memory so the shielded task doesn't depend on the
+    # file still existing on disk (callers may clean up the path).
+    audio_bytes = await asyncio.to_thread(audio_path.read_bytes)
+    file_name = audio_path.name
 
     # ── Submit ──────────────────────────────────────────────────────────
     last_err: Exception | None = None
     for attempt in range(1, _SUBMIT_RETRIES + 1):
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
-                with open(audio_path, "rb") as f:
-                    resp = await client.post(
-                        f"{worker}/submit",
-                        files={"audio": (audio_path.name, f, "audio/wav")},
-                    )
+                resp = await client.post(
+                    f"{worker}/submit",
+                    files={"audio": (file_name, audio_bytes, "audio/wav")},
+                )
 
                 resp.raise_for_status()
                 job_id = resp.json()["job_id"]
@@ -185,12 +193,13 @@ async def _submit_and_poll(audio_path: Path) -> dict:
     else:
         raise RuntimeError(f"Failed to submit job after {_SUBMIT_RETRIES} attempts: {last_err}")
 
-    # ── Poll ────────────────────────────────────────────────────────────
-    deadline = asyncio.get_event_loop().time() + _POLL_TIMEOUT_S
-    while asyncio.get_event_loop().time() < deadline:
+    # ── Poll (no timeout — waits until job completes or fails) ───────
+    poll_count = 0
+    while True:
         await asyncio.sleep(_POLL_INTERVAL_S)
+        poll_count += 1
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=300.0) as client:
                 resp = await client.get(f"{worker}/status/{job_id}")
                 resp.raise_for_status()
                 data = resp.json()
@@ -204,11 +213,57 @@ async def _submit_and_poll(audio_path: Path) -> dict:
             else:
                 pos = data.get("queue_position", "?")
                 logger.debug("Job %s status=%s queue_pos=%s", job_id, status, pos)
-        except (httpx.ConnectError, httpx.ReadTimeout, httpx.HTTPStatusError) as exc:
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in (502, 503, 524):
+                logger.warning("Poll error for job %s: %s", job_id, exc)
+            else:
+                raise
+        except (httpx.ConnectError, httpx.ReadTimeout) as exc:
             # Transient network error during poll — keep trying
             logger.warning("Poll error for job %s: %s", job_id, exc)
 
-    raise TimeoutError(f"Job {job_id} did not complete within {_POLL_TIMEOUT_S}s")
+        # Log progress every 60 polls (~5 min) so logs show the job is alive
+        if poll_count % 60 == 0:
+            logger.info("Job %s still waiting (poll #%d)", job_id, poll_count)
+
+
+async def _do_inference(
+    audio_path: Path,
+    *,
+    cache_key: str | None = None,
+    title: str = "Unknown",
+    artist: str = "Unknown",
+) -> SongFingerprints:
+    """Submit to worker, poll, derive fingerprints, and cache.
+
+    Runs as an independent background task so it survives client disconnects.
+    """
+    from app.services.song_cache import store_cached
+
+    data = await _submit_and_poll(audio_path)
+
+    if "preds_b64gz" in data:
+        compressed = base64.b64decode(data["preds_b64gz"])
+        raw = gzip.decompress(compressed)
+        preds = np.load(io.BytesIO(raw)).astype(np.float32)
+    else:
+        preds = np.array(data["preds"], dtype=np.float32)
+
+    logger.info("Received preds %s from worker", preds.shape)
+
+    fingerprints = derive_fingerprints(preds)
+
+    if cache_key:
+        await asyncio.to_thread(
+            store_cached,
+            cache_key,
+            fingerprints,
+            title=title,
+            artist=artist,
+            inference_time_s=data.get("inference_time_s"),
+        )
+
+    return fingerprints
 
 
 async def analyze_audio(
@@ -227,42 +282,38 @@ async def analyze_audio(
     In mock mode, generates structured fake data.
     In real mode, submits to the async worker queue via POST /submit and
     polls GET /status/{job_id} for results (avoids Cloudflare tunnel timeouts).
+
+    The polling task is shielded from cancellation — if the HTTP client
+    disconnects, the backend continues polling and caches the result so
+    no GPU work is wasted.
     """
-    import asyncio
-
-    from app.services.song_cache import store_cached
-
     if settings.use_mock_tribe:
         logger.info("Using MOCK TRIBE analysis for %s", audio_path)
         preds = _mock_preds(seed=str(audio_path))
         return derive_fingerprints(preds)
 
-    # Async submit + poll (or sync fallback for old workers)
-    data = await _submit_and_poll(audio_path)
+    # If this cache_key already has an in-flight task, await it instead
+    # of submitting a duplicate job.
+    if cache_key and cache_key in _inflight:
+        logger.info("Joining existing in-flight task for %s", cache_key)
+        return await asyncio.shield(_inflight[cache_key])
 
-    if "preds_b64gz" in data:
-        compressed = base64.b64decode(data["preds_b64gz"])
-        raw = gzip.decompress(compressed)
-        preds = np.load(io.BytesIO(raw))
-    else:
-        preds = np.array(data["preds"], dtype=np.float32)
-
-    logger.info("Received preds %s from worker", preds.shape)
-
-    fingerprints = derive_fingerprints(preds)
-
-    # Store in cache for next time (offload to thread to avoid blocking)
-    if cache_key:
-        await asyncio.to_thread(
-            store_cached,
-            cache_key,
-            fingerprints,
+    # Spawn as a background task and shield it from cancellation so it
+    # keeps running even if the SSE client disconnects.
+    task = asyncio.create_task(
+        _do_inference(
+            audio_path,
+            cache_key=cache_key,
             title=title,
             artist=artist,
-            inference_time_s=data.get("inference_time_s"),
         )
+    )
 
-    return fingerprints
+    if cache_key:
+        _inflight[cache_key] = task
+        task.add_done_callback(lambda _: _inflight.pop(cache_key, None))
+
+    return await asyncio.shield(task)
 
 
 def resample_sequence(
