@@ -364,6 +364,16 @@ export default function Home() {
       }
       // Process any remaining buffer
       if (buffer.trim()) processEvents(buffer + "\n\n");
+
+      // Fallback: if stream ended without a complete/error event, reset UI
+      setViewState((cur) => {
+        if (cur === "processing") {
+          setBrainFlashing(false);
+          setProcessingStatus("Stream ended unexpectedly. Please try again.");
+          return "importing";
+        }
+        return cur;
+      });
     } catch (err) {
       setProcessingStatus(`Failed: ${err instanceof Error ? err.message : "Unknown error"}`);
       setBrainFlashing(false);
