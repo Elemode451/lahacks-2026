@@ -317,7 +317,7 @@ export default function Home() {
                                   : "Paste YouTube video URL..."
                               }
                               className="w-full bg-[rgba(249,87,56,0.06)] border border-[rgba(249,87,56,0.2)] focus:border-[#f95738] rounded-full text-[#f95738] placeholder-[rgba(249,87,56,0.35)] outline-none text-sm transition-colors"
-                              style={{ padding: "13px 64px 13px 32px" }}
+                              style={{ padding: "13px 64px 13px 24px" }}
                             />
                             <button
                               type="submit"
@@ -328,7 +328,7 @@ export default function Home() {
                           </div>
                         </form>
 
-                        <div className="flex-1 overflow-y-auto mt-3 w-full custom-scrollbar flex flex-col items-center">
+                        <div className="flex-1 overflow-y-auto w-full custom-scrollbar flex flex-col items-center" style={{ marginTop: 12 }}>
                           <div className="w-full h-full pb-4">
                             <AnimatePresence>
                               {songs.length === 0 ? (
@@ -351,15 +351,15 @@ export default function Home() {
                                       initial={{ opacity: 0, y: 10 }}
                                       animate={{ opacity: 1, y: 0 }}
                                       exit={{ opacity: 0, scale: 0.95 }}
-                                      className="bg-[rgba(249,87,56,0.08)] border border-[rgba(249,87,56,0.2)] rounded-full flex items-center justify-between group w-full"
-                                      style={{ padding: "13px 32px" }}
+                                      className="relative bg-[rgba(249,87,56,0.08)] border border-[rgba(249,87,56,0.2)] rounded-full flex items-center group w-full"
+                                      style={{ padding: "13px 64px 13px 24px" }}
                                     >
-                                      <span className="text-[#f95738] font-medium truncate pr-4 text-sm">
+                                      <span className="text-[#f95738] font-medium truncate text-sm">
                                         {song}
                                       </span>
                                       <button
                                         onClick={() => handleRemoveSong(idx)}
-                                        className="text-[#f95738] hover:text-[#d84b31] transition-colors shrink-0"
+                                        className="absolute right-[clamp(6px,0.8vw,10px)] text-[#f95738] hover:text-[#d84b31] transition-colors flex items-center justify-center w-[clamp(28px,2.8vw,36px)] h-[clamp(28px,2.8vw,36px)] rounded-full"
                                       >
                                         <X className="size-4" />
                                       </button>
