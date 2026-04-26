@@ -256,31 +256,31 @@ export default function Home() {
               >
                 {/* Header: "import:" left, icon tabs right */}
                 <div className="flex justify-between items-start">
-                  <h2 className="font-medium text-[#f95738] text-[clamp(24px,2.8vw,36px)] tracking-[-1.44px] leading-none">import:</h2>
-                  <div className="flex gap-[clamp(16px,2.3vw,30px)] text-[#f95738] items-center">
+                  <h2 className="font-medium text-[#f95738] text-[clamp(18px,2vw,26px)] tracking-[-1px] leading-none">import:</h2>
+                  <div className="flex gap-[clamp(12px,1.6vw,20px)] text-[#f95738] items-center">
                     <button
                       className={`transition-all duration-200 cursor-pointer p-1 ${importType === "file" ? "opacity-100 scale-110" : "opacity-40 hover:opacity-70"}`}
                       onClick={() => setImportType("file")}
                     >
-                      <FileIcon className="w-[clamp(28px,3.1vw,40px)] h-[clamp(32px,3.6vw,46px)]" />
+                      <FileIcon className="w-[clamp(18px,1.6vw,24px)] h-[clamp(20px,1.8vw,28px)]" />
                     </button>
                     <button
                       className={`transition-all duration-200 cursor-pointer p-1 ${importType === "spotify" ? "opacity-100 scale-110" : "opacity-40 hover:opacity-70"}`}
                       onClick={() => setImportType("spotify")}
                     >
-                      <SpotifyIcon className="w-[clamp(30px,3.5vw,45px)] h-[clamp(30px,3.5vw,45px)]" />
+                      <SpotifyIcon className="w-[clamp(20px,1.8vw,26px)] h-[clamp(20px,1.8vw,26px)]" />
                     </button>
                     <button
                       className={`transition-all duration-200 cursor-pointer p-1 ${importType === "youtube" ? "opacity-100 scale-110" : "opacity-40 hover:opacity-70"}`}
                       onClick={() => setImportType("youtube")}
                     >
-                      <YouTubeIcon className="w-[clamp(34px,4vw,51px)] h-[clamp(24px,2.8vw,36px)]" />
+                      <YouTubeIcon className="w-[clamp(22px,2vw,28px)] h-[clamp(16px,1.4vw,20px)]" />
                     </button>
                   </div>
                 </div>
 
                 {/* Content area — large gap below header matching figma */}
-                <div className="flex-1 min-h-0 relative flex flex-col" style={{ marginTop: "clamp(24px, 7.4%, 48px)" }}>
+                <div className="flex-1 min-h-0 relative flex flex-col" style={{ marginTop: "clamp(16px, 4%, 32px)" }}>
                   <AnimatePresence mode="wait">
                     {importType === "file" ? (
                       <motion.div
@@ -291,10 +291,10 @@ export default function Home() {
                         transition={{ duration: 0.2 }}
                         className="relative z-10 w-full flex-1 flex flex-col items-center justify-center text-[#f95738]"
                       >
-                        <div className="absolute inset-0 rounded-[50px] border-4 border-[#f95738] border-dashed pointer-events-none opacity-50" />
-                        <UploadIcon className="w-[clamp(32px,3.9vw,50px)] h-[clamp(32px,3.9vw,50px)] mb-5" />
-                        <p className="text-[clamp(14px,1.25vw,18px)] font-medium tracking-tight">Drag and drop files here</p>
-                        <p className="text-[clamp(12px,1vw,14px)] mt-2 opacity-70">or click to browse</p>
+                        <div className="absolute inset-0 rounded-[30px] border-[3px] border-[#f95738] border-dashed pointer-events-none opacity-40" />
+                        <UploadIcon className="w-[clamp(24px,2.5vw,36px)] h-[clamp(24px,2.5vw,36px)] mb-4" />
+                        <p className="text-[clamp(13px,1.1vw,16px)] font-medium tracking-tight">Drag and drop files here</p>
+                        <p className="text-[clamp(11px,0.9vw,13px)] mt-1.5 opacity-60">or click to browse</p>
                       </motion.div>
                     ) : (
                       <motion.div
@@ -305,7 +305,7 @@ export default function Home() {
                         transition={{ duration: 0.2 }}
                         className="relative z-10 w-full flex-1 min-h-0 flex flex-col"
                       >
-                        <form onSubmit={handleAddSong} className="w-full max-w-xl mx-auto">
+                        <form onSubmit={handleAddSong} className="w-full">
                           <div className="relative flex items-center">
                             <input
                               type="text"
@@ -316,19 +316,19 @@ export default function Home() {
                                   ? "Paste Spotify track/playlist link..."
                                   : "Paste YouTube video URL..."
                               }
-                              className="w-full bg-[rgba(249,87,56,0.08)] border-2 border-[rgba(249,87,56,0.25)] focus:border-[#f95738] rounded-full py-3.5 px-7 text-[#f95738] placeholder-[rgba(249,87,56,0.5)] outline-none text-[clamp(13px,1.1vw,16px)] transition-colors"
+                              className="w-full bg-[rgba(249,87,56,0.08)] border-[1.5px] border-[rgba(249,87,56,0.25)] focus:border-[#f95738] rounded-full py-3 px-6 pr-14 text-[#f95738] placeholder-[rgba(249,87,56,0.4)] outline-none text-[clamp(12px,1vw,14px)] transition-colors"
                             />
                             <button
                               type="submit"
-                              className="absolute right-3 bg-[#f95738] text-white w-10 h-10 rounded-full hover:bg-[#d84b31] transition-colors flex items-center justify-center"
+                              className="absolute right-2.5 bg-[#f95738] text-white w-8 h-8 rounded-full hover:bg-[#d84b31] transition-colors flex items-center justify-center"
                             >
-                              <Send className="size-4 text-white" />
+                              <Send className="size-3.5 text-white" />
                             </button>
                           </div>
                         </form>
 
-                        <div className="flex-1 overflow-y-auto mt-6 w-full custom-scrollbar flex flex-col items-center">
-                          <div className="w-full max-w-xl h-full pb-4">
+                        <div className="flex-1 overflow-y-auto mt-5 w-full custom-scrollbar flex flex-col items-center">
+                          <div className="w-full h-full pb-4">
                             <AnimatePresence>
                               {songs.length === 0 ? (
                                 <motion.div
@@ -336,8 +336,8 @@ export default function Home() {
                                   animate={{ opacity: 1 }}
                                   className="h-full flex flex-col items-center justify-center text-[#f95738]"
                                 >
-                                  <p className="text-[clamp(14px,1.25vw,18px)] font-medium tracking-tight opacity-60">List is empty</p>
-                                  <p className="text-[clamp(12px,1vw,14px)] mt-2 text-center max-w-xs opacity-40">
+                                  <p className="text-[clamp(13px,1.1vw,16px)] font-medium tracking-tight opacity-60">List is empty</p>
+                                  <p className="text-[clamp(11px,0.9vw,13px)] mt-1.5 text-center max-w-xs opacity-40">
                                     {importType === "spotify" && "Add Spotify links to begin analysis"}
                                     {importType === "youtube" && "Add YouTube video links to begin analysis"}
                                   </p>
@@ -352,7 +352,7 @@ export default function Home() {
                                       exit={{ opacity: 0, scale: 0.95 }}
                                       className="bg-[rgba(249,87,56,0.12)] rounded-2xl py-4 px-6 flex items-center justify-between group w-full"
                                     >
-                                      <span className="text-[#f95738] font-medium truncate pr-4 text-[clamp(13px,1.1vw,16px)]">
+                                      <span className="text-[#f95738] font-medium truncate pr-4 text-[clamp(12px,1vw,14px)]">
                                         {song}
                                       </span>
                                       <button
@@ -375,13 +375,13 @@ export default function Home() {
 
                 {/* Bottom: song count left + analyze pill right */}
                 <div className="flex justify-between items-center shrink-0" style={{ marginTop: "clamp(12px, 3%, 24px)" }}>
-                  <span className="text-[#f95738] font-medium text-[clamp(14px,1.4vw,20px)] tracking-[-0.8px] opacity-70">
+                  <span className="text-[#f95738] font-medium text-[clamp(12px,1.1vw,16px)] tracking-[-0.5px] opacity-60">
                     {songs.length} {songs.length === 1 ? "song" : "songs"} added
                   </span>
                   <button
                     onClick={handleAnalyze}
-                    className="bg-[rgba(249,87,56,0.5)] hover:bg-[rgba(249,87,56,0.65)] transition-colors text-[#f95738] font-medium text-[clamp(20px,2.8vw,36px)] tracking-[-1.44px] rounded-[50px] cursor-pointer"
-                    style={{ padding: "clamp(10px, 1.8vh, 18px) clamp(28px, 4vw, 52px)" }}
+                    className="bg-[rgba(249,87,56,0.35)] hover:bg-[rgba(249,87,56,0.5)] transition-colors text-[#f95738] font-medium text-[clamp(14px,1.2vw,18px)] tracking-[-0.72px] rounded-full cursor-pointer"
+                    style={{ padding: "clamp(8px, 1vh, 12px) clamp(20px, 2.5vw, 36px)" }}
                   >
                     analyze
                   </button>
