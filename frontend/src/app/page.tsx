@@ -36,6 +36,9 @@ const SongRecommendations = dynamic(() => import("@/components/SongRecommendatio
 const KeyInfoDisplay = dynamic(() => import("@/components/KeyInfo"), {
   ssr: false,
 });
+const EmotionalProfile = dynamic(() => import("@/components/EmotionalProfile"), {
+  ssr: false,
+});
 
 type ViewState = "intro" | "importing" | "analyzing" | "processing" | "analysis";
 type ImportType = "file" | "spotify" | "youtube";
@@ -786,6 +789,16 @@ export default function Home() {
                   <MusicRadarChart data={radarData} className="w-full max-w-[340px]" style={{ height: "min(220px, 26vh)" }} />
                 </div>
               </motion.div>
+
+              {/* Emotional Response */}
+              <EmotionalProfile
+                emotionalProfile={
+                  analysisResult?.emotional_profile as
+                    | { emotions?: { name: string; intensity: number; level: string; description: string }[]; dominant_emotions?: string[]; summary?: string }
+                    | null
+                    | undefined
+                }
+              />
 
               {/* Key Info */}
               <KeyInfoDisplay
