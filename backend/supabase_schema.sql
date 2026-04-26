@@ -137,8 +137,10 @@ ALTER TABLE user_song_interactions ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY user_recs_select ON user_recommendations FOR SELECT USING (true);
 CREATE POLICY user_recs_insert ON user_recommendations FOR INSERT WITH CHECK (true);
+CREATE POLICY user_recs_delete ON user_recommendations FOR DELETE USING (true);
 CREATE POLICY user_songs_select ON user_song_interactions FOR SELECT USING (true);
 CREATE POLICY user_songs_insert ON user_song_interactions FOR INSERT WITH CHECK (true);
+CREATE POLICY user_songs_update ON user_song_interactions FOR UPDATE USING (true);
 
 -- Analyses: owner can CRUD, shared analyses are public-read
 CREATE POLICY analyses_select ON analyses FOR SELECT
