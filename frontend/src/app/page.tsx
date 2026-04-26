@@ -3,7 +3,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import dynamic from "next/dynamic";
-import { X, Send, LogOut } from "lucide-react";
+import { X, Send, LogOut, Clock } from "lucide-react";
 import {
   SeratoneLogo,
   SoundBarsIcon,
@@ -67,11 +67,44 @@ export default function Home() {
   // Timeline scrubbing segment index
   const [currentSegment, setCurrentSegment] = useState(0);
 
+  // Saved creator analyses
+  interface SavedAnalysis {
+    analysis_id: string;
+    kind: string;
+    title: string;
+    created_at: string | null;
+  }
+  const [savedAnalyses, setSavedAnalyses] = useState<SavedAnalysis[]>([]);
+
   useEffect(() => {
     if (!loading && !user) {
       router.replace("/login");
     }
   }, [user, loading, router]);
+
+  // Fetch saved creator analyses on mount
+  useEffect(() => {
+    if (!session?.access_token) return;
+    apiFetch("/creator/analyses", {}, session.access_token)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data: SavedAnalysis[]) => setSavedAnalyses(data))
+      .catch(() => {});
+  }, [session?.access_token]);
+
+  const handleViewSavedAnalysis = useCallback(async (analysisId: string) => {
+    const token = session?.access_token ?? null;
+    try {
+      const res = await apiFetch(`/analyses/${analysisId}`, {}, token);
+      if (!res.ok) return;
+      const detail = await res.json();
+      if (detail.payload) {
+        setAnalysisResult(detail.payload);
+        setViewState("analysis");
+      }
+    } catch {
+      // ignore
+    }
+  }, [session]);
 
   // Close EventSource on unmount
   useEffect(() => {
@@ -684,16 +717,44 @@ export default function Home() {
                           onChange={(e) => handleFileSelect(e.target.files)}
                         />
                         {uploadedFiles.length === 0 ? (
-                          <div
-                            className="flex-1 flex flex-col items-center justify-center cursor-pointer relative rounded-[30px]"
-                            onClick={() => fileInputRef.current?.click()}
-                            onDragOver={(e) => e.preventDefault()}
-                            onDrop={(e) => { e.preventDefault(); handleFileSelect(e.dataTransfer.files); }}
-                          >
-                            <div className="absolute inset-0 rounded-[30px] border-[3px] border-[#f95738] border-dashed pointer-events-none opacity-40" />
-                            <UploadIcon className="w-[clamp(24px,2.5vw,36px)] h-[clamp(24px,2.5vw,36px)] mb-4" />
-                            <p className="text-[clamp(13px,1.1vw,16px)] font-medium tracking-tight">Drag and drop files here</p>
-                            <p className="text-[clamp(11px,0.9vw,13px)] mt-1.5 opacity-60">or click to browse</p>
+                          <div className="flex-1 flex flex-col min-h-0">
+                            <div
+                              className={`${savedAnalyses.length > 0 ? "h-[45%]" : "flex-1"} flex flex-col items-center justify-center cursor-pointer relative rounded-[30px] shrink-0`}
+                              onClick={() => fileInputRef.current?.click()}
+                              onDragOver={(e) => e.preventDefault()}
+                              onDrop={(e) => { e.preventDefault(); handleFileSelect(e.dataTransfer.files); }}
+                            >
+                              <div className="absolute inset-0 rounded-[30px] border-[3px] border-[#f95738] border-dashed pointer-events-none opacity-40" />
+                              <UploadIcon className="w-[clamp(24px,2.5vw,36px)] h-[clamp(24px,2.5vw,36px)] mb-4" />
+                              <p className="text-[clamp(13px,1.1vw,16px)] font-medium tracking-tight">Drag and drop files here</p>
+                              <p className="text-[clamp(11px,0.9vw,13px)] mt-1.5 opacity-60">or click to browse</p>
+                            </div>
+
+                            {savedAnalyses.length > 0 && (
+                              <div className="flex-1 min-h-0 flex flex-col mt-4">
+                                <div className="flex items-center gap-2 mb-2 shrink-0">
+                                  <Clock className="w-3.5 h-3.5 opacity-60" />
+                                  <span className="text-xs font-medium opacity-60 tracking-tight">My Uploads</span>
+                                </div>
+                                <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-2">
+                                  {savedAnalyses.map((a) => (
+                                    <button
+                                      key={a.analysis_id}
+                                      onClick={() => handleViewSavedAnalysis(a.analysis_id)}
+                                      className="w-full text-left bg-[rgba(249,87,56,0.06)] border border-[rgba(249,87,56,0.15)] rounded-full flex items-center gap-3 hover:bg-[rgba(249,87,56,0.12)] transition-colors cursor-pointer"
+                                      style={{ padding: "10px 20px" }}
+                                    >
+                                      <span className="font-medium truncate text-sm flex-1">{a.title}</span>
+                                      {a.created_at && (
+                                        <span className="text-[10px] opacity-40 shrink-0">
+                                          {new Date(a.created_at).toLocaleDateString()}
+                                        </span>
+                                      )}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         ) : (
                           <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-3 pb-2">

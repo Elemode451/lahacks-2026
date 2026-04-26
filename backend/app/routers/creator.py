@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import asyncio
-import collections
+import hashlib
 import logging
 import uuid
 
-from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
 
 import numpy as np
-from app.models.schemas import CreatorAnalyzeResponse, SongInfo
+from app.models.schemas import AnalysisSummary, CreatorAnalyzeResponse, SongInfo
 from app.services.audio import cleanup_audio, save_uploaded_audio
-from app.services.song_cache import save_analysis
+from app.services.song_cache import record_user_interaction, save_analysis, store_cached
 from app.services.tribe import (
     _average_timelines,
     _resample_raw,
@@ -22,16 +22,15 @@ from app.services.tribe import (
     encode_temporal_b64,
     resample_sequence,
 )
-from app.utils.auth import try_get_user_id
+from app.utils.auth import require_auth, try_get_user_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/creator", tags=["creator"])
 
-# In-memory store for creator analyses (not persisted to DB — user's uploaded
-# songs should NOT go in the catalog database per the spec).
-# Capped at 200 entries to prevent unbounded memory growth.
-_MAX_CREATOR_CACHE = 200
-_creator_analyses: collections.OrderedDict[str, dict] = collections.OrderedDict()
+def _upload_lookup_key(filename: str, file_bytes: bytes) -> str:
+    """Build a deterministic lookup key for an uploaded file."""
+    file_hash = hashlib.sha256(file_bytes).hexdigest()[:16]
+    return f"upload:{file_hash}"
 
 
 @router.post("/analyze", response_model=CreatorAnalyzeResponse)
@@ -43,9 +42,9 @@ async def analyze_creator_track(
 ):
     """Analyze an uploaded track in creator mode.
 
-    The uploaded song is NOT stored in the catalog database.
-    Returns the same TRIBE v2 analysis as listener mode: global fingerprint,
-    temporal fingerprints, peak fingerprint, region scores, and timeline.
+    The song is persisted to ``song_cache`` so the recommendation engine can
+    discover it, and an analysis record is saved to the ``analyses`` table for
+    the authenticated user (if any).
     """
     ct = audio.content_type or ""
     allowed_prefixes = ("audio/", "video/", "application/octet-stream", "application/ogg")
@@ -122,13 +121,27 @@ async def analyze_creator_track(
             vibe_description=vibe,
         )
 
-        # Store in memory so the user can retrieve it during the session
-        _creator_analyses[analysis_id] = result.model_dump()
-        while len(_creator_analyses) > _MAX_CREATOR_CACHE:
-            _creator_analyses.popitem(last=False)
+        # Persist to song_cache so the recommendation engine can find it
+        lookup_key = _upload_lookup_key(audio.filename or "upload.wav", file_bytes)
+        try:
+            store_cached(
+                lookup_key=lookup_key,
+                fingerprints=song_fp,
+                title=title,
+                artist=artist,
+            )
+        except Exception:
+            logger.exception("Failed to cache creator upload %s", lookup_key)
 
-        # Persist to Supabase (non-blocking)
+        # Save analysis + record interaction for authenticated users
         user_id = try_get_user_id(authorization)
+        if user_id:
+            try:
+                record_user_interaction(user_id, lookup_key, "uploaded")
+            except Exception:
+                logger.exception("Failed to record interaction for user %s", user_id)
+
+        # Persist analysis to Supabase (non-blocking)
         creator_payload = {
             "song": song.model_dump(),
             "fingerprint_id": song_fp.fingerprint_id,
@@ -151,3 +164,33 @@ async def analyze_creator_track(
 
     finally:
         cleanup_audio(audio_path)
+
+
+@router.get("/analyses", response_model=list[AnalysisSummary])
+async def list_creator_analyses(user_id: str = Depends(require_auth)):
+    """Return the authenticated user's saved creator analyses."""
+    try:
+        from app.services.supabase_client import get_supabase_admin
+
+        sb = get_supabase_admin()
+        resp = (
+            sb.table("analyses")
+            .select("id, kind, title, created_at, share_slug")
+            .eq("owner_id", user_id)
+            .eq("kind", "creator")
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return [
+            AnalysisSummary(
+                analysis_id=row["id"],
+                kind=row["kind"],
+                title=row["title"],
+                created_at=row.get("created_at"),
+                share_slug=row.get("share_slug"),
+            )
+            for row in (resp.data or [])
+        ]
+    except Exception:
+        logger.exception("Failed to list creator analyses for user %s", user_id)
+        raise HTTPException(500, "Failed to retrieve analyses")
