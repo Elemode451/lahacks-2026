@@ -150,6 +150,7 @@ async def analyze_creator_track(
                     source="brain_similarity",
                 )
                 for s in similar
+                if not s["lookup_key"].startswith("upload:")
             ]
         except Exception:
             logger.warning("Failed to find similar songs for creator upload")
