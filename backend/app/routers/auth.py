@@ -9,7 +9,7 @@ import logging
 import secrets
 import time
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -226,9 +226,10 @@ async def spotify_oauth_callback(
 ) -> RedirectResponse:
     """Handle the Spotify OAuth redirect: exchange code, upsert user, redirect."""
     if error or not code:
+        safe_error = quote(error or "access_denied")
         return RedirectResponse(
             url=f"{settings.frontend_url}/auth/callback"
-            f"?error={error or 'access_denied'}&provider=spotify"
+            f"?error={safe_error}&provider=spotify"
         )
     if not _verify_state(state):
         raise HTTPException(400, "Invalid or expired OAuth state")
@@ -344,21 +345,21 @@ async def _upsert_spotify_user(
         if result.user is None:
             raise HTTPException(500, "Failed to create user account")
         user_id = result.user.id
-
-        # Store display name in profiles table
-        if display_name:
-            sb.table("profiles").upsert(
-                {"user_id": user_id, "display_name": display_name}
-            ).execute()
+        is_new_user = True
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
+        exc_msg = str(exc).lower()
+        if "already" not in exc_msg and "duplicate" not in exc_msg:
+            logger.exception("Unexpected error creating Supabase user")
+            raise HTTPException(500, "Failed to create user account")
         # User already exists — look up via admin API and update metadata
         logger.info("User %s already exists, linking Spotify account", email)
         existing = _find_user_by_email(sb, email)
         if existing is None:
             raise HTTPException(500, "Failed to locate existing user account")
         user_id = existing.id
+        is_new_user = False
         sb.auth.admin.update_user_by_id(
             user_id,
             {
@@ -369,6 +370,13 @@ async def _upsert_spotify_user(
                 }
             },
         )
+
+    # Store display name in profiles table (outside try so failures don't
+    # trigger the "user already exists" fallback)
+    if is_new_user and display_name:
+        sb.table("profiles").upsert(
+            {"user_id": user_id, "display_name": display_name}
+        ).execute()
 
     # Generate a session via magic link OTP verification
     link_resp = sb.auth.admin.generate_link(
