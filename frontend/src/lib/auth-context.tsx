@@ -77,7 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const sb = getSupabase();
     await sb.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: window.location.origin },
+      options: { redirectTo: `${window.location.origin}/auth/callback` },
     });
   }, []);
 
@@ -85,7 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const sb = getSupabase();
     await sb.auth.signInWithOAuth({
       provider: "spotify",
-      options: { redirectTo: window.location.origin },
+      options: { redirectTo: `${window.location.origin}/auth/callback` },
     });
   }, []);
 

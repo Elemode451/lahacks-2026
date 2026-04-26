@@ -12,10 +12,17 @@ class Settings(BaseSettings):
     # Spotify
     spotify_client_id: str = ""
     spotify_client_secret: str = ""
+    spotify_redirect_uri: str = ""
+
+    # Frontend
+    frontend_url: str = "http://localhost:3000"
 
     # TRIBE v2 inference worker
     tribe_worker_url: str = "http://localhost:8001"
     use_mock_tribe: bool = True  # Use mock responses until TRIBE worker is ready
+
+    # ASI:One agent
+    asi1_api_key: str = ""
 
     # App
     app_name: str = "SeraTune"
@@ -23,7 +30,7 @@ class Settings(BaseSettings):
     static_dir: str = "./app/static"
     audio_cache_dir: str = "/tmp/seratune_audio"
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 
 settings = Settings()

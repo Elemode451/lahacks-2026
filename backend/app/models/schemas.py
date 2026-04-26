@@ -71,6 +71,12 @@ class CreatorAnalyzeResponse(BaseModel):
     frames: list[str] = []
     top_matches: list[SongMatch] = []
     summary: str = ""
+    # Fields matching ClusterAnalyzeResponse for frontend parity
+    combined_fingerprint_b64: str = ""
+    temporal_fingerprints_b64: str = ""
+    combined_region_scores: RegionScores = Field(default_factory=RegionScores)
+    combined_timeline: list[dict[str, float]] = []
+    vibe_description: str = ""
 
 
 # ── Listener / Cluster Mode ────────────────────────────────────────────────
@@ -280,6 +286,10 @@ class ClusterAnalyzeResponse(BaseModel):
         default="",
         description="Short text summary of the analysis results.",
     )
+    saved: bool = Field(
+        default=False,
+        description="Whether this analysis was persisted to the database.",
+    )
 
 
 # ── Recommendations ────────────────────────────────────────────────────────
@@ -403,6 +413,35 @@ class AnalysisDetail(BaseModel):
     share_slug: str | None = None
 
 
+class AnalysisFingerprintsResponse(BaseModel):
+    """Reconstructed fingerprint data for a saved analysis.
+
+    Contains the same binary fields as the original ``ClusterAnalyzeResponse``
+    but re-derived from the per-song cache (no GPU required).
+    """
+    analysis_id: str
+    combined_fingerprint_b64: str = Field(
+        default="",
+        description="Base64-encoded float32 array (20484,) — aggregate brain fingerprint.",
+    )
+    temporal_fingerprints_b64: str = Field(
+        default="",
+        description="Base64-encoded float32 array (30, 20484) — temporal segments.",
+    )
+    combined_region_scores: RegionScores = Field(default_factory=RegionScores)
+    combined_timeline: list[dict[str, float]] = Field(default=[])
+    peak_segment: int = 0
+    vibe_description: str = ""
+    songs_loaded: int = Field(
+        0,
+        description="Number of songs whose fingerprints were successfully reconstructed from cache.",
+    )
+    songs_total: int = Field(
+        0,
+        description="Total number of songs in the original analysis.",
+    )
+
+
 class ShareResponse(BaseModel):
     share_url: str
     share_slug: str
@@ -447,3 +486,18 @@ class AuthResponse(BaseModel):
 
 class SyncProfileResponse(BaseModel):
     display_name: str = ""
+
+
+class OAuthStartResponse(BaseModel):
+    url: str
+
+
+class SpotifyRefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class SpotifyTokenData(BaseModel):
+    access_token: str
+    refresh_token: str | None = None
+    expires_in: int
+    scope: str

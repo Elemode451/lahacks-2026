@@ -2,6 +2,9 @@
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.packages.find]
+include = ["app*"]
+
 [project]
 name = "seratune-backend"
 version = "0.1.0"
@@ -21,6 +24,7 @@ dependencies = [
   "pydantic-settings>=2.0.0",
   "python-jose[cryptography]>=3.3.0",
   "python-dotenv>=1.0.0",
+  "slowapi>=0.1.9",
 ]
 
 [project.optional-dependencies]

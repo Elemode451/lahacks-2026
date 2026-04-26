@@ -3,7 +3,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import dynamic from "next/dynamic";
-import { X, Send, LogOut } from "lucide-react";
+import { X, Send, LogOut, Clock } from "lucide-react";
 import {
   SeratoneLogo,
   SoundBarsIcon,
@@ -15,7 +15,8 @@ import {
 import ColorBends, { type ColorBendsHandle } from "@/components/ColorBends";
 import { useAuth } from "@/lib/auth-context";
 import { useRouter } from "next/navigation";
-import { apiFetch, apiUrl } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
+import type { RecommendedSong } from "@/components/SongRecommendations";
 
 const BrainScene = dynamic(() => import("@/components/BrainScene"), {
   ssr: false,
@@ -64,11 +65,52 @@ export default function Home() {
   // Analysis results from API
   const [analysisResult, setAnalysisResult] = useState<Record<string, unknown> | null>(null);
 
+  // Timeline scrubbing segment index
+  const [currentSegment, setCurrentSegment] = useState(0);
+
+  // Saved creator analyses
+  interface SavedAnalysis {
+    analysis_id: string;
+    kind: string;
+    title: string;
+    created_at: string | null;
+  }
+  const [savedAnalyses, setSavedAnalyses] = useState<SavedAnalysis[]>([]);
+
+  // Recommendation state
+  const [recommendations, setRecommendations] = useState<RecommendedSong[]>([]);
+  const [recsLoading, setRecsLoading] = useState(false);
+  const seenSongIdsRef = useRef<Set<string>>(new Set());
+
   useEffect(() => {
     if (!loading && !user) {
       router.replace("/login");
     }
   }, [user, loading, router]);
+
+  // Fetch saved creator analyses on mount
+  useEffect(() => {
+    if (!session?.access_token) return;
+    apiFetch("/creator/analyses", {}, session.access_token)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data: SavedAnalysis[]) => setSavedAnalyses(data))
+      .catch(() => {});
+  }, [session?.access_token]);
+
+  const handleViewSavedAnalysis = useCallback(async (analysisId: string) => {
+    const token = session?.access_token ?? null;
+    try {
+      const res = await apiFetch(`/analyses/${analysisId}`, {}, token);
+      if (!res.ok) return;
+      const detail = await res.json();
+      if (detail.payload) {
+        setAnalysisResult(detail.payload);
+        setViewState("analysis");
+      }
+    } catch {
+      // ignore
+    }
+  }, [session]);
 
   // Close EventSource on unmount
   useEffect(() => {
@@ -87,6 +129,84 @@ export default function Home() {
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
   }, []);
+
+  // Decode base64 → Float32Array
+  function decodeB64Float32(b64: string): Float32Array | null {
+    try {
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return new Float32Array(bytes.buffer);
+    } catch {
+      return null;
+    }
+  }
+
+  // Derive fingerprint data from analysisResult (no setState in effect)
+  const fingerprint = useMemo(() => {
+    const b64 = analysisResult?.combined_fingerprint_b64 as string | undefined;
+    return b64 ? decodeB64Float32(b64) : null;
+  }, [analysisResult]);
+
+  const temporalData = useMemo(() => {
+    const b64 = analysisResult?.temporal_fingerprints_b64 as string | undefined;
+    return b64 ? decodeB64Float32(b64) : null;
+  }, [analysisResult]);
+
+  // Extract timeline activations for AudioTimeline bar heights
+  const timelineActivations = useMemo(() => {
+    const timeline = analysisResult?.combined_timeline as
+      | Array<Record<string, number>>
+      | undefined;
+    if (!timeline || timeline.length === 0) return undefined;
+    return timeline.map((seg) => seg.whole_cortex ?? 0);
+  }, [analysisResult]);
+
+  // Extract region scores for MusicRadarChart
+  const radarData = useMemo(() => {
+    const scores = analysisResult?.combined_region_scores as
+      | Record<string, number>
+      | undefined;
+    if (!scores) return undefined;
+    const entries = [
+      { attribute: "Auditory", value: scores.auditory ?? 0 },
+      { attribute: "Sup. Temporal", value: scores.superior_temporal ?? 0 },
+      { attribute: "Temp.-Parietal", value: scores.temporo_parietal ?? 0 },
+      { attribute: "Inf. Frontal", value: scores.inferior_frontal ?? 0 },
+      { attribute: "Multisensory", value: scores.multisensory ?? 0 },
+      { attribute: "Whole Cortex", value: scores.whole_cortex ?? 0 },
+    ];
+    const max = Math.max(...entries.map((e) => e.value));
+    if (max === 0) return undefined;
+    const min = Math.min(...entries.map((e) => e.value));
+    const range = max - min;
+    if (range === 0) {
+      // All regions identical — show uniform mid-level
+      return entries.map((e) => ({ attribute: e.attribute, value: 50 }));
+    }
+    // Min-max scale to 15–100 so the shape has clear peaks and valleys
+    return entries.map((e) => ({
+      attribute: e.attribute,
+      value: Math.round(15 + ((e.value - min) / range) * 85),
+    }));
+  }, [analysisResult]);
+
+  const peakSegment = (analysisResult?.peak_segment as number | undefined) ?? undefined;
+
+  const topMatches = useMemo(() => {
+    if (!analysisResult) return undefined;
+    const matches = analysisResult.top_matches as Array<{
+      song: { title: string; artist: string };
+      similarity_score: number;
+      matching_regions?: string[];
+    }> | undefined;
+    if (!matches || matches.length === 0) return undefined;
+    return matches.map((m) => ({
+      title: m.song.title,
+      artist: m.song.artist,
+      tag: m.matching_regions?.[0]?.replace(/_/g, " ") ?? `${Math.round(m.similarity_score * 100)}% match`,
+    }));
+  }, [analysisResult]);
 
   const layout = useMemo(() => {
     const contentH = vh - TOPBAR_H;
@@ -153,7 +273,132 @@ export default function Home() {
     setProcessingProgress(0);
     setProcessingTotal(0);
     setAnalysisResult(null);
+    setCurrentSegment(0);
+    setSongs([]);
+    setUploadedFiles([]);
+    setInputValue("");
+    setRecommendations([]);
+    setRecsLoading(false);
+    seenSongIdsRef.current.clear();
   };
+
+  // Fetch recommendations for a given song identifier
+  const fetchRecommendations = useCallback(
+    async (songId: string) => {
+      setRecsLoading(true);
+      const token = session?.access_token ?? null;
+
+      try {
+        const isSpotify = songId.startsWith("spotify:");
+        const body: Record<string, unknown> = {
+          n: 10,
+          exclude_previously_recommended: true,
+        };
+        if (isSpotify) {
+          body.spotify_id = songId.replace("spotify:", "");
+        } else {
+          body.youtube_url = songId;
+        }
+
+        const similarRes = await apiFetch(
+          "/recommendations/similar",
+          { method: "POST", body: JSON.stringify(body) },
+          token,
+        );
+
+        let similarSongs: RecommendedSong[] = [];
+        if (similarRes.ok) {
+          const data = await similarRes.json();
+          similarSongs = (data.recommendations ?? []).map(
+            (r: { song: { song_id: string; title: string; artist: string }; similarity_score: number; source: string }) => ({
+              song_id: r.song.song_id,
+              title: r.song.title,
+              artist: r.song.artist,
+              similarity_score: r.similarity_score,
+              source: r.source ?? "brain_similarity",
+            }),
+          );
+        }
+
+        let collabSongs: RecommendedSong[] = [];
+        if (token) {
+          const collabRes = await apiFetch(
+            "/recommendations/collaborative",
+            { method: "POST", body: JSON.stringify({ n: 10 }) },
+            token,
+          );
+          if (collabRes.ok) {
+            const data = await collabRes.json();
+            collabSongs = (data.recommendations ?? []).map(
+              (r: { song: { song_id: string; title: string; artist: string }; similarity_score: number; source: string }) => ({
+                song_id: r.song.song_id,
+                title: r.song.title,
+                artist: r.song.artist,
+                similarity_score: r.similarity_score,
+                source: r.source ?? "collaborative",
+              }),
+            );
+          }
+        }
+
+        // Blend: brain-similar first, then collaborative, deduplicated
+        const seen = seenSongIdsRef.current;
+        const blended: RecommendedSong[] = [];
+        for (const song of [...similarSongs, ...collabSongs]) {
+          if (!seen.has(song.song_id)) {
+            seen.add(song.song_id);
+            blended.push(song);
+          }
+        }
+
+        setRecommendations((prev) => {
+          const existingIds = new Set(prev.map((s) => s.song_id));
+          const newSongs = blended.filter((s) => !existingIds.has(s.song_id));
+          return [...prev, ...newSongs];
+        });
+      } catch (err) {
+        console.error("Failed to fetch recommendations:", err);
+      } finally {
+        setRecsLoading(false);
+      }
+    },
+    [session],
+  );
+
+  // Handle clicking a recommended song — trigger analysis for it
+  const handleRecommendedSongClick = useCallback(
+    (song: RecommendedSong) => {
+      const songId = song.song_id;
+      const isSpotify = songId.startsWith("spotify:");
+
+      if (isSpotify) {
+        const spotifyId = songId.replace("spotify:", "");
+        const url = `https://open.spotify.com/track/${spotifyId}`;
+        setSongs((prev) => [...prev, url]);
+      } else {
+        setSongs((prev) => [...prev, songId]);
+      }
+
+      setImportType(songId.startsWith("spotify:") ? "spotify" : "youtube");
+    },
+    [],
+  );
+
+  // Refresh recommendations
+  const handleRefreshRecommendations = useCallback(() => {
+    const result = analysisResult;
+    if (!result) return;
+    const analyzedSongs = (result as Record<string, unknown>).songs as Array<{ song_id?: string; spotify_id?: string }> | undefined;
+    if (analyzedSongs?.length) {
+      const first = analyzedSongs[0];
+      const cacheKey = first.spotify_id
+        ? `spotify:${first.spotify_id}`
+        : first.song_id;
+      if (cacheKey) {
+        fetchRecommendations(cacheKey);
+      }
+    }
+  }, [analysisResult, fetchRecommendations]);
 
   // ── Real API: Creator Mode (file upload) ──
   const handleCreatorAnalyze = useCallback(async () => {
@@ -205,6 +450,7 @@ export default function Home() {
     setViewState("processing");
     setProcessingStatus("Submitting songs for analysis...");
     setProcessingProgress(0);
+    setProcessingTotal(0);
 
     try {
       const clusterSongs = songs.map((url) => {
@@ -229,7 +475,7 @@ export default function Home() {
 
       const token = session?.access_token ?? null;
       const res = await apiFetch(
-        "/clusters/analyze",
+        "/clusters/analyze/stream",
         { method: "POST", body: JSON.stringify(body) },
         token,
       );
@@ -239,62 +485,85 @@ export default function Home() {
         throw new Error(err);
       }
 
-      const { batch_id, total_songs } = await res.json();
-      setProcessingTotal(total_songs);
+      // Parse SSE events from the streaming POST response
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("No response stream");
 
-      // Clean up previous EventSource if any
-      eventSourceRef.current?.close();
+      const decoder = new TextDecoder();
+      let buffer = "";
 
-      const eventSource = new EventSource(apiUrl(`/clusters/batch/${batch_id}/events`));
-      eventSourceRef.current = eventSource;
-
-      eventSource.addEventListener("song_complete", (e) => {
-        const data = JSON.parse(e.data);
-        setProcessingProgress(data.index);
-        setProcessingTotal(data.total);
-        setProcessingStatus(
-          `Analyzed ${data.index}/${data.total}: ${data.song}${data.cached ? " (cached)" : ""}`,
-        );
-      });
-
-      eventSource.addEventListener("song_error", (e) => {
-        const data = JSON.parse(e.data);
-        setProcessingStatus(`Error on ${data.song}: ${data.error}`);
-      });
-
-      eventSource.addEventListener("complete", (e) => {
-        const result = JSON.parse(e.data);
-        setAnalysisResult(result);
-        setBrainFlashing(false);
-        setViewState("analysis");
-        eventSource.close();
-        eventSourceRef.current = null;
-      });
-
-      eventSource.addEventListener("error", (e) => {
-        const data = e instanceof MessageEvent ? JSON.parse(e.data) : null;
-        setProcessingStatus(
-          `Analysis failed: ${data?.message ?? "Unknown error"}`,
-        );
-        setBrainFlashing(false);
-        setViewState("importing");
-        eventSource.close();
-        eventSourceRef.current = null;
-      });
-
-      eventSource.onerror = () => {
-        setProcessingStatus("Connection lost. Please try again.");
-        setBrainFlashing(false);
-        setViewState("importing");
-        eventSource.close();
-        eventSourceRef.current = null;
+      const processEvents = (text: string) => {
+        buffer += text;
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() ?? "";
+        for (const part of parts) {
+          if (!part.trim()) continue;
+          let eventType = "";
+          const dataLines: string[] = [];
+          for (const line of part.split("\n")) {
+            if (line.startsWith("event: ")) eventType = line.slice(7).trim();
+            else if (line.startsWith("data: ")) dataLines.push(line.slice(6));
+            else if (line.startsWith("data:")) dataLines.push(line.slice(5));
+          }
+          const eventData = dataLines.join("\n");
+          if (!eventType || !eventData) continue;
+          try {
+            const data = JSON.parse(eventData);
+            if (eventType === "song_complete") {
+              setProcessingProgress(data.index);
+              setProcessingTotal(data.total);
+              setProcessingStatus(`Analyzed ${data.index}/${data.total}: ${data.song}`);
+            } else if (eventType === "song_error") {
+              setProcessingStatus(`Error on ${data.song}: ${data.error}`);
+            } else if (eventType === "complete") {
+              setAnalysisResult(data);
+              setBrainFlashing(false);
+              setViewState("analysis");
+              // Fetch recommendations for the first analyzed song
+              const analyzedSongs = data.songs as Array<{ song_id?: string; spotify_id?: string }> | undefined;
+              if (analyzedSongs?.length) {
+                const first = analyzedSongs[0];
+                const cacheKey = first.spotify_id
+                  ? `spotify:${first.spotify_id}`
+                  : first.song_id;
+                if (cacheKey) {
+                  fetchRecommendations(cacheKey);
+                }
+              }
+            } else if (eventType === "error") {
+              setProcessingStatus(`Analysis failed: ${data?.message ?? "Unknown error"}`);
+              setBrainFlashing(false);
+              setViewState("importing");
+            }
+          } catch (e) {
+            console.error("SSE parse error for event:", eventType, e);
+          }
+        }
       };
+
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        processEvents(decoder.decode(value, { stream: true }));
+      }
+      // Process any remaining buffer
+      if (buffer.trim()) processEvents(buffer + "\n\n");
+
+      // Fallback: if stream ended without a complete/error event, reset UI
+      setViewState((cur) => {
+        if (cur === "processing") {
+          setBrainFlashing(false);
+          setProcessingStatus("Stream ended unexpectedly. Please try again.");
+          return "importing";
+        }
+        return cur;
+      });
     } catch (err) {
       setProcessingStatus(`Failed: ${err instanceof Error ? err.message : "Unknown error"}`);
       setBrainFlashing(false);
       setViewState("importing");
     }
-  }, [songs, session]);
+  }, [songs, session, fetchRecommendations]);
 
   // Wire the analyze button to the right handler based on importType
   const handleAnalyze = () => {
@@ -371,7 +640,9 @@ export default function Home() {
           className="w-full h-full"
           flashing={brainFlashing}
           interactive={viewState === "analysis"}
-          timePosition={0}
+          fingerprint={fingerprint}
+          temporalData={temporalData}
+          segmentIndex={currentSegment}
         />
       </motion.div>
 
@@ -422,20 +693,35 @@ export default function Home() {
               transition={{ duration: 0.6, delay: 0.4 }}
             >
               {/* Timeline — narrower, centered */}
-              <AudioTimeline duration={214} className="max-w-[260px] mx-auto w-full shrink-0" />
+              <AudioTimeline
+                duration={214}
+                segmentActivations={timelineActivations}
+                peakIndex={peakSegment}
+                currentIndex={currentSegment}
+                onSegmentChange={setCurrentSegment}
+                className="max-w-[260px] mx-auto w-full shrink-0"
+              />
 
               {/* Radar chart — constrained, centered */}
               <div className="flex justify-center shrink-0 mt-2">
-                <MusicRadarChart className="w-full max-w-[340px]" style={{ height: "min(220px, 26vh)" }} />
+                <MusicRadarChart data={radarData} className="w-full max-w-[340px]" style={{ height: "min(220px, 26vh)" }} />
               </div>
 
               {/* Chat + Song Recommendations */}
               <div className="flex-1 min-h-0 flex gap-4 mt-4">
                 <ChatInterface
                   overview={overviewText}
+                  analysisResult={analysisResult}
+                  token={session?.access_token ?? null}
                   className="flex-1 min-w-0"
                 />
-                <SongRecommendations className="w-[40%] shrink-0" />
+                <SongRecommendations
+                  className="w-[40%] shrink-0"
+                  recommendations={recommendations}
+                  loading={recsLoading}
+                  onSongClick={handleRecommendedSongClick}
+                  onRefresh={handleRefreshRecommendations}
+                />
               </div>
             </motion.div>
           )}
@@ -581,16 +867,44 @@ export default function Home() {
                           onChange={(e) => handleFileSelect(e.target.files)}
                         />
                         {uploadedFiles.length === 0 ? (
-                          <div
-                            className="flex-1 flex flex-col items-center justify-center cursor-pointer relative rounded-[30px]"
-                            onClick={() => fileInputRef.current?.click()}
-                            onDragOver={(e) => e.preventDefault()}
-                            onDrop={(e) => { e.preventDefault(); handleFileSelect(e.dataTransfer.files); }}
-                          >
-                            <div className="absolute inset-0 rounded-[30px] border-[3px] border-[#f95738] border-dashed pointer-events-none opacity-40" />
-                            <UploadIcon className="w-[clamp(24px,2.5vw,36px)] h-[clamp(24px,2.5vw,36px)] mb-4" />
-                            <p className="text-[clamp(13px,1.1vw,16px)] font-medium tracking-tight">Drag and drop files here</p>
-                            <p className="text-[clamp(11px,0.9vw,13px)] mt-1.5 opacity-60">or click to browse</p>
+                          <div className="flex-1 flex flex-col min-h-0">
+                            <div
+                              className={`${savedAnalyses.length > 0 ? "h-[45%]" : "flex-1"} flex flex-col items-center justify-center cursor-pointer relative rounded-[30px] shrink-0`}
+                              onClick={() => fileInputRef.current?.click()}
+                              onDragOver={(e) => e.preventDefault()}
+                              onDrop={(e) => { e.preventDefault(); handleFileSelect(e.dataTransfer.files); }}
+                            >
+                              <div className="absolute inset-0 rounded-[30px] border-[3px] border-[#f95738] border-dashed pointer-events-none opacity-40" />
+                              <UploadIcon className="w-[clamp(24px,2.5vw,36px)] h-[clamp(24px,2.5vw,36px)] mb-4" />
+                              <p className="text-[clamp(13px,1.1vw,16px)] font-medium tracking-tight">Drag and drop files here</p>
+                              <p className="text-[clamp(11px,0.9vw,13px)] mt-1.5 opacity-60">or click to browse</p>
+                            </div>
+
+                            {savedAnalyses.length > 0 && (
+                              <div className="flex-1 min-h-0 flex flex-col mt-4">
+                                <div className="flex items-center gap-2 mb-2 shrink-0">
+                                  <Clock className="w-3.5 h-3.5 opacity-60" />
+                                  <span className="text-xs font-medium opacity-60 tracking-tight">My Uploads</span>
+                                </div>
+                                <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-2">
+                                  {savedAnalyses.map((a) => (
+                                    <button
+                                      key={a.analysis_id}
+                                      onClick={() => handleViewSavedAnalysis(a.analysis_id)}
+                                      className="w-full text-left bg-[rgba(249,87,56,0.06)] border border-[rgba(249,87,56,0.15)] rounded-full flex items-center gap-3 hover:bg-[rgba(249,87,56,0.12)] transition-colors cursor-pointer"
+                                      style={{ padding: "10px 20px" }}
+                                    >
+                                      <span className="font-medium truncate text-sm flex-1">{a.title}</span>
+                                      {a.created_at && (
+                                        <span className="text-[10px] opacity-40 shrink-0">
+                                          {new Date(a.created_at).toLocaleDateString()}
+                                        </span>
+                                      )}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         ) : (
                           <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-3 pb-2">
