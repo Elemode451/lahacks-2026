@@ -15,7 +15,7 @@ import {
 import ColorBends, { type ColorBendsHandle } from "@/components/ColorBends";
 import { useAuth } from "@/lib/auth-context";
 import { useRouter } from "next/navigation";
-import { apiFetch, apiUrl } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 
 const BrainScene = dynamic(() => import("@/components/BrainScene"), {
   ssr: false,
@@ -307,7 +307,7 @@ export default function Home() {
 
       const token = session?.access_token ?? null;
       const res = await apiFetch(
-        "/clusters/analyze",
+        "/clusters/analyze/stream",
         { method: "POST", body: JSON.stringify(body) },
         token,
       );
@@ -317,56 +317,53 @@ export default function Home() {
         throw new Error(err);
       }
 
-      const { batch_id, total_songs } = await res.json();
-      setProcessingTotal(total_songs);
+      // Parse SSE events from the streaming POST response
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("No response stream");
 
-      // Clean up previous EventSource if any
-      eventSourceRef.current?.close();
+      const decoder = new TextDecoder();
+      let buffer = "";
 
-      const eventSource = new EventSource(apiUrl(`/clusters/batch/${batch_id}/events`));
-      eventSourceRef.current = eventSource;
-
-      eventSource.addEventListener("song_complete", (e) => {
-        const data = JSON.parse(e.data);
-        setProcessingProgress(data.index);
-        setProcessingTotal(data.total);
-        setProcessingStatus(
-          `Analyzed ${data.index}/${data.total}: ${data.song}`,
-        );
-      });
-
-      eventSource.addEventListener("song_error", (e) => {
-        const data = JSON.parse(e.data);
-        setProcessingStatus(`Error on ${data.song}: ${data.error}`);
-      });
-
-      eventSource.addEventListener("complete", (e) => {
-        const result = JSON.parse(e.data);
-        setAnalysisResult(result);
-        setBrainFlashing(false);
-        setViewState("analysis");
-        eventSource.close();
-        eventSourceRef.current = null;
-      });
-
-      eventSource.addEventListener("error", (e) => {
-        const data = e instanceof MessageEvent ? JSON.parse(e.data) : null;
-        setProcessingStatus(
-          `Analysis failed: ${data?.message ?? "Unknown error"}`,
-        );
-        setBrainFlashing(false);
-        setViewState("importing");
-        eventSource.close();
-        eventSourceRef.current = null;
-      });
-
-      eventSource.onerror = () => {
-        setProcessingStatus("Connection lost. Please try again.");
-        setBrainFlashing(false);
-        setViewState("importing");
-        eventSource.close();
-        eventSourceRef.current = null;
+      const processEvents = (text: string) => {
+        buffer += text;
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() ?? "";
+        for (const part of parts) {
+          let eventType = "";
+          let eventData = "";
+          for (const line of part.split("\n")) {
+            if (line.startsWith("event: ")) eventType = line.slice(7);
+            else if (line.startsWith("data: ")) eventData = line.slice(6);
+          }
+          if (!eventType || !eventData) continue;
+          try {
+            const data = JSON.parse(eventData);
+            if (eventType === "song_complete") {
+              setProcessingProgress(data.index);
+              setProcessingTotal(data.total);
+              setProcessingStatus(`Analyzed ${data.index}/${data.total}: ${data.song}`);
+            } else if (eventType === "song_error") {
+              setProcessingStatus(`Error on ${data.song}: ${data.error}`);
+            } else if (eventType === "complete") {
+              setAnalysisResult(data);
+              setBrainFlashing(false);
+              setViewState("analysis");
+            } else if (eventType === "error") {
+              setProcessingStatus(`Analysis failed: ${data?.message ?? "Unknown error"}`);
+              setBrainFlashing(false);
+              setViewState("importing");
+            }
+          } catch { /* skip malformed events */ }
+        }
       };
+
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        processEvents(decoder.decode(value, { stream: true }));
+      }
+      // Process any remaining buffer
+      if (buffer.trim()) processEvents(buffer + "\n\n");
     } catch (err) {
       setProcessingStatus(`Failed: ${err instanceof Error ? err.message : "Unknown error"}`);
       setBrainFlashing(false);

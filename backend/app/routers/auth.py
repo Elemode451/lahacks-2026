@@ -191,9 +191,10 @@ def _spotify_basic_auth() -> str:
 def _sign_state(state: str) -> str:
     """Create an HMAC signature for the OAuth state value."""
     key = settings.spotify_client_secret.encode()
-    payload = f"{state}:{int(time.time())}".encode()
+    ts = int(time.time())
+    payload = f"{state}:{ts}".encode()
     sig = hmac.new(key, payload, hashlib.sha256).hexdigest()
-    return f"{state}:{int(time.time())}:{sig}"
+    return f"{state}:{ts}:{sig}"
 
 
 def _verify_state(signed: str) -> bool:
@@ -326,29 +327,10 @@ async def _upsert_spotify_user(
 
     Returns (supabase_access_token, user_id).
     """
-    # Check for existing user
-    existing_user = None
-    users = sb.auth.admin.list_users()
-    for u in users:
-        if hasattr(u, "email") and u.email == email:
-            existing_user = u
-            break
+    user_id: str
 
-    if existing_user:
-        # Update metadata with Spotify info
-        sb.auth.admin.update_user_by_id(
-            existing_user.id,
-            {
-                "user_metadata": {
-                    **(existing_user.user_metadata or {}),
-                    "spotify_user_id": spotify_user_id,
-                    "provider": "spotify",
-                }
-            },
-        )
-        user_id = existing_user.id
-    else:
-        # Create new user with a random password (OAuth-only account)
+    # Try to create the user first; if they already exist Supabase raises an error
+    try:
         random_password = secrets.token_urlsafe(32)
         result = sb.auth.admin.create_user(
             {
@@ -366,11 +348,29 @@ async def _upsert_spotify_user(
             raise HTTPException(500, "Failed to create user account")
         user_id = result.user.id
 
-        # Store display name in profiles table
+        # Store display name in profiles table for new users
         if display_name:
             sb.table("profiles").upsert(
                 {"user_id": user_id, "display_name": display_name}
             ).execute()
+    except HTTPException:
+        raise
+    except Exception:
+        # User already exists — generate_link returns the user object without pagination
+        link_for_lookup = sb.auth.admin.generate_link({"type": "magiclink", "email": email})
+        if hasattr(link_for_lookup, "user") and link_for_lookup.user:
+            user_id = link_for_lookup.user.id
+            sb.auth.admin.update_user_by_id(
+                user_id,
+                {
+                    "user_metadata": {
+                        "spotify_user_id": spotify_user_id,
+                        "provider": "spotify",
+                    }
+                },
+            )
+        else:
+            raise HTTPException(500, "Failed to find or create user account")
 
     # Generate a session link to get an access token
     link_resp = sb.auth.admin.generate_link(
