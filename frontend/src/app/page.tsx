@@ -33,6 +33,9 @@ const ChatInterface = dynamic(() => import("@/components/ChatInterface"), {
 const SongRecommendations = dynamic(() => import("@/components/SongRecommendations"), {
   ssr: false,
 });
+const KeyInfoDisplay = dynamic(() => import("@/components/KeyInfo"), {
+  ssr: false,
+});
 
 type ViewState = "intro" | "importing" | "analyzing" | "processing" | "analysis";
 type ImportType = "file" | "spotify" | "youtube";
@@ -706,6 +709,12 @@ export default function Home() {
               <div className="flex justify-center shrink-0 mt-2">
                 <MusicRadarChart data={radarData} className="w-full max-w-[340px]" style={{ height: "min(220px, 26vh)" }} />
               </div>
+
+              {/* Key Info */}
+              <KeyInfoDisplay
+                analysisResult={analysisResult}
+                className="mt-3 px-1"
+              />
 
               {/* Chat + Song Recommendations */}
               <div className="flex-1 min-h-0 flex gap-4 mt-4">

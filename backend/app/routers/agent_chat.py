@@ -35,6 +35,10 @@ When responding:
   (e.g. "your track has a strong rhythmic anchor that keeps listeners grounded" \
   rather than "high activation in the motor cortex")
 - When relevant, suggest production directions based on the neural profile
+- When key information is available, weave it naturally into your response \
+  (e.g. "your track is in D minor, often associated with melancholy and introspection")
+- Mention key compatibility when comparing songs (e.g. "these tracks share closely \
+  related keys, which is why they feel harmonically connected")
 - Keep responses to 1-2 sentences unless the creator asks for more detail
 - Can compare the music to what you have
 
@@ -96,6 +100,29 @@ def _build_context(analysis: Any) -> str:
     peak = analysis.get("peak_segment")
     if peak is not None:
         parts.append(f"Peak activation segment: {peak}/29")
+
+    # Key information
+    key_info = None
+    song_data = analysis.get("song")
+    if song_data and isinstance(song_data, dict):
+        key_info = song_data.get("key_info")
+    key_analysis = analysis.get("key_analysis")
+    if key_info and isinstance(key_info, dict) and key_info.get("key_name"):
+        parts.append(f"\nMusical Key: {key_info['key_name']}")
+        if key_info.get("tempo"):
+            parts.append(f"Tempo: {key_info['tempo']:.0f} BPM")
+        if key_info.get("mood"):
+            parts.append(f"Key mood association: {key_info['mood']}")
+    if key_analysis and isinstance(key_analysis, dict):
+        ka_summary = key_analysis.get("summary")
+        if ka_summary:
+            parts.append(f"\nKey Analysis: {ka_summary}")
+        comparisons = key_analysis.get("pairwise_key_comparisons", [])
+        if comparisons:
+            parts.append("\nKey Compatibility:")
+            for comp in comparisons[:5]:
+                if isinstance(comp, dict) and comp.get("description"):
+                    parts.append(f"  - {comp['description']}")
 
     return "\n".join(parts)
 
