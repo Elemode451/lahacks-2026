@@ -493,8 +493,11 @@ def find_collaborative_recommendations(
     then surfaces songs those users analyzed that the current user hasn't.
     Returns (results, similar_user_count) sorted by frequency.
     """
-    client = _get_client()
-    if client is None:
+    try:
+        from app.services.supabase_client import get_supabase_admin
+        client = get_supabase_admin()
+    except Exception:
+        logger.warning("Supabase admin not configured — skipping collaborative recs")
         return [], 0
 
     skip = set(exclude_keys or ())
