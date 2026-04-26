@@ -8,7 +8,7 @@ import logging
 import uuid
 
 from fastapi import APIRouter, HTTPException, Header, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from app.models.schemas import (
     ClusterAnalyzeRequest,
@@ -31,6 +31,7 @@ from app.services.tribe import (
     encode_temporal_b64,
     resample_sequence,
 )
+from app.utils.auth import try_get_user_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/clusters", tags=["clusters"])
@@ -42,21 +43,6 @@ router = APIRouter(prefix="/clusters", tags=["clusters"])
 _batches: dict[str, dict] = {}
 # batch_id -> {"events": asyncio.Queue, "task": asyncio.Task, "done": bool}
 
-
-def _try_get_user_id(authorization: str | None) -> str | None:
-    """Extract user ID from the Supabase JWT. Returns None if unauthenticated."""
-    if not authorization or not authorization.startswith("Bearer "):
-        return None
-    token = authorization.removeprefix("Bearer ")
-    try:
-        from app.services.supabase_client import get_supabase_admin
-        sb = get_supabase_admin()
-        user = sb.auth.get_user(token)
-        if user is None or user.user is None:
-            return None
-        return user.user.id
-    except Exception:
-        return None
 
 
 def _sse_event(event: str, data: dict) -> str:
@@ -268,7 +254,7 @@ async def analyze_cluster(
     ```
     """
     all_cluster_songs = await _resolve_songs(req)
-    user_id = _try_get_user_id(authorization)
+    user_id = try_get_user_id(authorization)
 
     batch_id = uuid.uuid4().hex[:12]
     q: asyncio.Queue = asyncio.Queue()
@@ -326,9 +312,12 @@ async def batch_events(batch_id: str, request: Request):
 
     q: asyncio.Queue = batch["events"]
 
+    # If the batch is already done and all events consumed, return 204
+    # so EventSource treats it as a fatal error and stops reconnecting.
+    if batch["done"] and q.empty():
+        return Response(status_code=204)
+
     async def event_stream():
-        if batch["done"] and q.empty():
-            return
         while True:
             try:
                 event = await asyncio.wait_for(q.get(), timeout=30.0)

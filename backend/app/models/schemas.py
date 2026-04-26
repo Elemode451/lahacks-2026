@@ -443,3 +443,7 @@ class AuthResponse(BaseModel):
     user_id: str
     email: str
     display_name: str = ""
+
+
+class SyncProfileResponse(BaseModel):
+    display_name: str = ""

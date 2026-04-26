@@ -141,7 +141,6 @@ def derive_fingerprints(preds: np.ndarray) -> SongFingerprints:
 
 
 _POLL_INTERVAL_S = 5       # seconds between /status polls
-_POLL_TIMEOUT_S = 600      # max wait for a single job
 _SUBMIT_RETRIES = 3        # retry /submit on transient errors
 
 # In-flight background tasks keyed by cache_key so polling survives
@@ -160,16 +159,20 @@ async def _submit_and_poll(audio_path: Path) -> dict:
 
     worker = settings.tribe_worker_url
 
+    # Read file into memory so the shielded task doesn't depend on the
+    # file still existing on disk (callers may clean up the path).
+    audio_bytes = await asyncio.to_thread(audio_path.read_bytes)
+    file_name = audio_path.name
+
     # ── Submit ──────────────────────────────────────────────────────────
     last_err: Exception | None = None
     for attempt in range(1, _SUBMIT_RETRIES + 1):
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
-                with open(audio_path, "rb") as f:
-                    resp = await client.post(
-                        f"{worker}/submit",
-                        files={"audio": (audio_path.name, f, "audio/wav")},
-                    )
+                resp = await client.post(
+                    f"{worker}/submit",
+                    files={"audio": (file_name, audio_bytes, "audio/wav")},
+                )
 
                 resp.raise_for_status()
                 job_id = resp.json()["job_id"]
@@ -190,10 +193,11 @@ async def _submit_and_poll(audio_path: Path) -> dict:
     else:
         raise RuntimeError(f"Failed to submit job after {_SUBMIT_RETRIES} attempts: {last_err}")
 
-    # ── Poll ────────────────────────────────────────────────────────────
-    deadline = asyncio.get_event_loop().time() + _POLL_TIMEOUT_S
-    while asyncio.get_event_loop().time() < deadline:
+    # ── Poll (no timeout — waits until job completes or fails) ───────
+    poll_count = 0
+    while True:
         await asyncio.sleep(_POLL_INTERVAL_S)
+        poll_count += 1
         try:
             async with httpx.AsyncClient(timeout=300.0) as client:
                 resp = await client.get(f"{worker}/status/{job_id}")
@@ -218,7 +222,9 @@ async def _submit_and_poll(audio_path: Path) -> dict:
             # Transient network error during poll — keep trying
             logger.warning("Poll error for job %s: %s", job_id, exc)
 
-    raise TimeoutError(f"Job {job_id} did not complete within {_POLL_TIMEOUT_S}s")
+        # Log progress every 60 polls (~5 min) so logs show the job is alive
+        if poll_count % 60 == 0:
+            logger.info("Job %s still waiting (poll #%d)", job_id, poll_count)
 
 
 async def _do_inference(
