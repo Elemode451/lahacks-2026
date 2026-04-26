@@ -101,8 +101,8 @@ export default function Home() {
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-[#fffdf5] font-sans selection:bg-[#f95738] selection:text-white">
-      {/* Color Bends Background */}
-      <div className="absolute inset-0 pointer-events-none" style={{ top: TOPBAR_H }}>
+      {/* Color Bends Background — starts from top so topbar slide reveals it */}
+      <div className="absolute inset-0 pointer-events-none" style={{ top: 0 }}>
         <ColorBends
           ref={colorBendsRef}
           colors={["#0D3B66"]}
@@ -151,7 +151,7 @@ export default function Home() {
         />
       </motion.div>
 
-      {/* Logo Group — clickable, returns to intro */}
+      {/* Logo Group — stationary, clickable to return to intro */}
       <motion.div
         className="absolute z-20 flex items-end cursor-pointer hover:opacity-80"
         style={{ left: layout.logoLeft, top: TOPBAR_H - 41 }}
