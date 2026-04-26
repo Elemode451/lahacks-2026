@@ -453,6 +453,10 @@ class OAuthStartResponse(BaseModel):
     url: str
 
 
+class SpotifyRefreshRequest(BaseModel):
+    refresh_token: str
+
+
 class SpotifyTokenData(BaseModel):
     access_token: str
     refresh_token: str | None = None

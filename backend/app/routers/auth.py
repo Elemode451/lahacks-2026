@@ -22,6 +22,7 @@ from app.models.schemas import (
     LoginRequest,
     OAuthStartResponse,
     SignUpRequest,
+    SpotifyRefreshRequest,
     SpotifyTokenData,
     SyncProfileResponse,
 )
@@ -176,9 +177,10 @@ def _spotify_basic_auth() -> str:
 def _sign_state(state: str) -> str:
     """Create an HMAC signature for the OAuth state value."""
     key = settings.spotify_client_secret.encode()
-    payload = f"{state}:{int(time.time())}".encode()
+    ts = int(time.time())
+    payload = f"{state}:{ts}".encode()
     sig = hmac.new(key, payload, hashlib.sha256).hexdigest()
-    return f"{state}:{int(time.time())}:{sig}"
+    return f"{state}:{ts}:{sig}"
 
 
 def _verify_state(signed: str) -> bool:
@@ -403,7 +405,10 @@ async def _upsert_spotify_user(
 
 
 @router.post("/spotify/refresh", response_model=SpotifyTokenData)
-async def spotify_refresh_token(refresh_token: str) -> SpotifyTokenData:
+async def spotify_refresh_token(
+    req: SpotifyRefreshRequest,
+    _user_id: str = Depends(require_auth),
+) -> SpotifyTokenData:
     """Exchange a Spotify refresh token for a new access token."""
     try:
         async with httpx.AsyncClient() as client:
@@ -415,7 +420,7 @@ async def spotify_refresh_token(refresh_token: str) -> SpotifyTokenData:
                 },
                 data={
                     "grant_type": "refresh_token",
-                    "refresh_token": refresh_token,
+                    "refresh_token": req.refresh_token,
                 },
             )
         if resp.status_code != 200:
@@ -425,7 +430,7 @@ async def spotify_refresh_token(refresh_token: str) -> SpotifyTokenData:
         data = resp.json()
         return SpotifyTokenData(
             access_token=data["access_token"],
-            refresh_token=data.get("refresh_token", refresh_token),
+            refresh_token=data.get("refresh_token", req.refresh_token),
             expires_in=data.get("expires_in", 3600),
             scope=data.get("scope", ""),
         )
