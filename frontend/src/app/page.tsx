@@ -447,6 +447,7 @@ export default function Home() {
     setViewState("processing");
     setProcessingStatus("Submitting songs for analysis...");
     setProcessingProgress(0);
+    setProcessingTotal(0);
 
     try {
       const clusterSongs = songs.map((url) => {
@@ -493,12 +494,15 @@ export default function Home() {
         const parts = buffer.split("\n\n");
         buffer = parts.pop() ?? "";
         for (const part of parts) {
+          if (!part.trim()) continue;
           let eventType = "";
-          let eventData = "";
+          const dataLines: string[] = [];
           for (const line of part.split("\n")) {
-            if (line.startsWith("event: ")) eventType = line.slice(7);
-            else if (line.startsWith("data: ")) eventData = line.slice(6);
+            if (line.startsWith("event: ")) eventType = line.slice(7).trim();
+            else if (line.startsWith("data: ")) dataLines.push(line.slice(6));
+            else if (line.startsWith("data:")) dataLines.push(line.slice(5));
           }
+          const eventData = dataLines.join("\n");
           if (!eventType || !eventData) continue;
           try {
             const data = JSON.parse(eventData);
@@ -525,7 +529,9 @@ export default function Home() {
               setBrainFlashing(false);
               setViewState("importing");
             }
-          } catch { /* skip malformed events */ }
+          } catch (e) {
+            console.error("SSE parse error for event:", eventType, e);
+          }
         }
       };
 
@@ -551,7 +557,7 @@ export default function Home() {
       setBrainFlashing(false);
       setViewState("importing");
     }
-  }, [songs, session]);
+  }, [songs, session, fetchRecommendations]);
 
   // Wire the analyze button to the right handler based on importType
   const handleAnalyze = () => {

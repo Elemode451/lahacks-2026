@@ -45,9 +45,13 @@ need to explain that unless the creator specifically asks how it works.
 # ── Request / Response schemas ──────────────────────────────────────────────
 
 
+class ChatMessage(BaseModel):
+    role: str
+    content: str = ""
+
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, description="User message text.")
-    history: list[dict[str, str]] = Field(
+    history: list[ChatMessage | dict] = Field(
         default=[],
         description="Prior conversation turns as [{role, content}, ...].",
     )
@@ -213,10 +217,15 @@ async def agent_chat(
 
         messages = [{"role": "system", "content": system_content}]
         for turn in req.history[-10:]:
-            role = turn.get("role", "user")
+            if isinstance(turn, ChatMessage):
+                role = turn.role
+                content = turn.content
+            else:
+                role = turn.get("role", "user")
+                content = turn.get("content", "")
             if role not in ("user", "assistant"):
                 role = "user"
-            messages.append({"role": role, "content": turn.get("content", "")})
+            messages.append({"role": role, "content": content or ""})
         messages.append({"role": "user", "content": req.message})
 
         async with httpx.AsyncClient(timeout=30) as client:

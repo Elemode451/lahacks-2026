@@ -2,10 +2,11 @@
 
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from slowapi.middleware import SlowAPIMiddleware
+from slowapi.errors import RateLimitExceeded
 
 from app.rate_limit import limiter
 
@@ -24,7 +25,24 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# CORS — restrict to known origins
+# Rate limiting — use exception handler instead of SlowAPIMiddleware.
+# SlowAPIMiddleware (BaseHTTPMiddleware) buffers the entire response,
+# which breaks SSE streaming on /clusters/analyze/stream.
+# Individual endpoints use @limiter.limit() decorators; this handler
+# converts RateLimitExceeded into a proper 429 JSON response.
+app.state.limiter = limiter
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={"detail": f"Rate limit exceeded: {exc.detail}"},
+    )
+
+
+# CORS — restrict to known origins (added AFTER rate limiter so CORS
+# middleware wraps everything and 429 responses include CORS headers)
 _ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:5173",
@@ -39,10 +57,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Rate limiting
-app.state.limiter = limiter
-app.add_middleware(SlowAPIMiddleware)
 
 # Static files (brain visualization frames, etc.)
 app.mount("/static", StaticFiles(directory=settings.static_dir), name="static")

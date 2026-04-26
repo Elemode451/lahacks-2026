@@ -137,14 +137,31 @@ async def _scrape_playlist_tracks(
     import re
 
     # Step 1: Scrape the public playlist page for track IDs (no auth needed)
-    resp = await client.get(
+    # Try the embed page first (less likely to 403), then the regular page
+    track_ids: list[str] = []
+    for page_url in [
+        f"https://open.spotify.com/embed/playlist/{playlist_id}",
         f"https://open.spotify.com/playlist/{playlist_id}",
-        headers={"User-Agent": "Mozilla/5.0"},
-    )
-    resp.raise_for_status()
-    html = resp.text
-
-    track_ids = list(dict.fromkeys(re.findall(r'/track/([a-zA-Z0-9]{22})', html)))
+    ]:
+        try:
+            resp = await client.get(
+                page_url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                },
+                follow_redirects=True,
+            )
+            if resp.status_code == 403:
+                logger.warning("Got 403 from %s, trying next source", page_url)
+                continue
+            resp.raise_for_status()
+            html = resp.text
+            track_ids = list(dict.fromkeys(re.findall(r'/track/([a-zA-Z0-9]{22})', html)))
+            if track_ids:
+                break
+        except Exception:
+            logger.warning("Failed to fetch playlist page %s", page_url)
+            continue
     logger.info("Scraped %d track IDs from playlist page %s", len(track_ids), playlist_id)
 
     if not track_ids:

@@ -124,7 +124,8 @@ async def analyze_creator_track(
         # Persist to song_cache so the recommendation engine can find it
         lookup_key = _upload_lookup_key(audio.filename or "upload.wav", file_bytes)
         try:
-            store_cached(
+            await asyncio.to_thread(
+                store_cached,
                 lookup_key=lookup_key,
                 fingerprints=song_fp,
                 title=title,
@@ -136,10 +137,9 @@ async def analyze_creator_track(
         # Save analysis + record interaction for authenticated users
         user_id = try_get_user_id(authorization)
         if user_id:
-            try:
-                record_user_interaction(user_id, lookup_key, "uploaded")
-            except Exception:
-                logger.exception("Failed to record interaction for user %s", user_id)
+            asyncio.get_running_loop().run_in_executor(
+                None, record_user_interaction, user_id, lookup_key, "uploaded",
+            )
 
         # Persist analysis to Supabase (non-blocking)
         creator_payload = {
@@ -147,7 +147,7 @@ async def analyze_creator_track(
             "fingerprint_id": song_fp.fingerprint_id,
             "region_scores": song_fp.region_scores.model_dump(),
             "timeline_region_scores": song_fp.timeline_region_scores,
-            "peak_segment": song_fp.peak_index,
+            "peak_segment": peak_seg,
             "summary": summary,
         }
         asyncio.get_running_loop().run_in_executor(

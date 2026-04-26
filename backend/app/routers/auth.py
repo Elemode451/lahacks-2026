@@ -283,7 +283,7 @@ async def spotify_oauth_callback(
 
         # 3. Upsert user in Supabase
         sb = get_supabase_admin()
-        supabase_token, user_id = await _upsert_spotify_user(
+        supabase_session, user_id = await _upsert_spotify_user(
             sb, spotify_email, spotify_user_id, display_name
         )
 
@@ -304,10 +304,15 @@ async def spotify_oauth_callback(
             }
         ).execute()
 
-        # 5. Redirect to frontend with the Supabase access token
+        # 5. Redirect to frontend with full Supabase session in hash fragment
+        from urllib.parse import quote as url_quote
         redirect_url = (
             f"{settings.frontend_url}/auth/callback"
-            f"#access_token={supabase_token}&provider=spotify"
+            f"#access_token={url_quote(supabase_session.access_token)}"
+            f"&refresh_token={url_quote(supabase_session.refresh_token)}"
+            f"&expires_in={supabase_session.expires_in}"
+            f"&token_type=bearer"
+            f"&provider=spotify"
         )
         return RedirectResponse(url=redirect_url)
 
@@ -398,7 +403,7 @@ async def _upsert_spotify_user(
             }
         )
         if verify_resp.session:
-            return verify_resp.session.access_token, user_id
+            return verify_resp.session, user_id
 
     raise HTTPException(500, "Failed to generate authentication session")
 
