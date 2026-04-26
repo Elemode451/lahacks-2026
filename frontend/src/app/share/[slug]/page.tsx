@@ -79,13 +79,13 @@ export default function SharedAnalysisPage() {
   }, [fingerprints, payload]);
 
   const timelineActivations = useMemo(() => {
-    const timeline = (fingerprints?.combined_timeline ?? payload?.combined_timeline) as Array<Record<string, number>> | undefined;
+    const timeline = (fingerprints?.combined_timeline ?? payload?.combined_timeline ?? payload?.timeline_region_scores) as Array<Record<string, number>> | undefined;
     if (!timeline || timeline.length === 0) return undefined;
     return timeline.map((seg) => seg.whole_cortex ?? 0);
   }, [fingerprints, payload]);
 
   const radarData = useMemo(() => {
-    const scores = (fingerprints?.combined_region_scores ?? payload?.combined_region_scores) as Record<string, number> | undefined;
+    const scores = (fingerprints?.combined_region_scores ?? payload?.combined_region_scores ?? payload?.region_scores) as Record<string, number> | undefined;
     if (!scores) return undefined;
     const entries = [
       { attribute: "Auditory", value: scores.auditory ?? 0 },
@@ -108,7 +108,14 @@ export default function SharedAnalysisPage() {
   const title = analysis?.title as string ?? "Shared Analysis";
   const vibeDescription = (fingerprints?.vibe_description ?? payload?.vibe_description ?? payload?.summary) as string | undefined;
 
-  const songs = payload?.songs as Array<{ title?: string; artist?: string }> | undefined;
+  // Listener payloads have `songs` (array), creator payloads have `song` (object)
+  const songs = useMemo(() => {
+    const arr = payload?.songs as Array<{ title?: string; artist?: string }> | undefined;
+    if (arr && arr.length > 0) return arr;
+    const single = payload?.song as { title?: string; artist?: string } | undefined;
+    if (single) return [single];
+    return undefined;
+  }, [payload]);
 
   if (loading) {
     return (

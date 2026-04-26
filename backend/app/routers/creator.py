@@ -128,11 +128,14 @@ async def analyze_creator_track(
             f"Peak activation occurs at segment {peak_seg}. {vibe}"
         )
 
+        # Compute lookup key early so we can exclude the uploaded file from its own results
+        lookup_key = _upload_lookup_key(audio.filename or "upload.wav", file_bytes)
+
         # Find top matches from the catalog by cosine similarity on region scores
         similar_results, _ = await asyncio.to_thread(
             find_similar_songs,
             target_scores=song_fp.region_scores,
-            exclude_keys=set(),
+            exclude_keys={lookup_key},
             n=5,
         )
         top_matches = [
@@ -174,7 +177,6 @@ async def analyze_creator_track(
         )
 
         # Persist to song_cache so the recommendation engine can find it
-        lookup_key = _upload_lookup_key(audio.filename or "upload.wav", file_bytes)
         try:
             await asyncio.to_thread(
                 store_cached,

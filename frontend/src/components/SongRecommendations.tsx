@@ -192,7 +192,7 @@ export default function SongRecommendations({
               {recommendations.length > 1 && (
                 <div className="flex items-center justify-center gap-1 mt-2">
                   <span className="text-[#0d3b66]/15 text-[8px] tabular-nums">
-                    {currentIndex + 1} / {recommendations.length}
+                    {safeIndex + 1} / {recommendations.length}
                   </span>
                 </div>
               )}
