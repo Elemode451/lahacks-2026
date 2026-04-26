@@ -195,7 +195,7 @@ async def _submit_and_poll(audio_path: Path) -> dict:
     while asyncio.get_event_loop().time() < deadline:
         await asyncio.sleep(_POLL_INTERVAL_S)
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=300.0) as client:
                 resp = await client.get(f"{worker}/status/{job_id}")
                 resp.raise_for_status()
                 data = resp.json()
@@ -209,7 +209,12 @@ async def _submit_and_poll(audio_path: Path) -> dict:
             else:
                 pos = data.get("queue_position", "?")
                 logger.debug("Job %s status=%s queue_pos=%s", job_id, status, pos)
-        except (httpx.ConnectError, httpx.ReadTimeout, httpx.HTTPStatusError) as exc:
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in (502, 503, 524):
+                logger.warning("Poll error for job %s: %s", job_id, exc)
+            else:
+                raise
+        except (httpx.ConnectError, httpx.ReadTimeout) as exc:
             # Transient network error during poll — keep trying
             logger.warning("Poll error for job %s: %s", job_id, exc)
 
@@ -234,7 +239,7 @@ async def _do_inference(
     if "preds_b64gz" in data:
         compressed = base64.b64decode(data["preds_b64gz"])
         raw = gzip.decompress(compressed)
-        preds = np.load(io.BytesIO(raw))
+        preds = np.load(io.BytesIO(raw)).astype(np.float32)
     else:
         preds = np.array(data["preds"], dtype=np.float32)
 
