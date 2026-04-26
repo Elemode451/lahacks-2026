@@ -1,4 +1,4 @@
-@import url("https://api.fontshare.com/v2/css?f[]=zodiak@400,500,600,700&f[]=switzer@400,500,600,700&display=swap");
+@import url("https://api.fontshare.com/v2/css?f[]=switzer@400,500,600,700&display=swap");
 @import "tailwindcss";
 
 :root {
@@ -8,7 +8,6 @@
   --heatmap-mid: #ee964b;
   --heatmap-low: #f4d35e;
 
-  --font-display: 'Zodiak', Georgia, serif;
   --font-body: 'Switzer', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
@@ -18,7 +17,6 @@
   --color-heatmap-hot: var(--heatmap-hot);
   --color-heatmap-mid: var(--heatmap-mid);
   --color-heatmap-low: var(--heatmap-low);
-  --font-display: var(--font-display);
   --font-body: var(--font-body);
 }
 
@@ -41,23 +39,9 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-.glass {
-  background: rgba(255, 253, 245, 0.55);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.35);
-}
-
-.glass-strong {
-  background: rgba(255, 253, 245, 0.75);
-  backdrop-filter: blur(40px);
-  -webkit-backdrop-filter: blur(40px);
-  border: 1px solid rgba(255, 255, 255, 0.4);
-}
-
 ::selection {
   background: rgba(249, 87, 56, 0.2);
-  color: var(--navy);
+  color: white;
 }
 
 input:focus, textarea:focus {
