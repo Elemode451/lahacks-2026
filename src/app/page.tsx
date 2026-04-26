@@ -58,7 +58,7 @@ export default function Home() {
       pillW: 140,
       pillH: 50,
       pillX: vw * 0.7,
-      pillY: TOPBAR_H / 2 - 25,
+      pillY: TOPBAR_H - 25,
       panelW: Math.min(vw * 0.72, 920),
       panelH: Math.min(contentH * 0.88, 650),
       panelX: (vw - Math.min(vw * 0.72, 920)) / 2,
@@ -103,23 +103,21 @@ export default function Home() {
     <div className="relative w-screen h-screen overflow-hidden bg-[#fffdf5] font-sans selection:bg-[#f95738] selection:text-white">
       {/* Color Bends Background */}
       <div className="absolute inset-0 pointer-events-none" style={{ top: TOPBAR_H }}>
-        <div className="absolute inset-0 opacity-75">
-          <ColorBends
-            ref={colorBendsRef}
-            colors={["#0d3b66", "#1a5a96", "#2470b8", "#4a88cc", "#8ab8e0", "#c4dcf4"]}
-            speed={0.025}
-            frequency={0.2}
-            warpStrength={0.16}
-            scale={2.2}
-            intensity={0.82}
-            noise={0.025}
-            iterations={2}
-            bandWidth={7}
-            transparent={false}
-            mouseInfluence={0.015}
-            parallax={0.04}
-          />
-        </div>
+        <ColorBends
+          ref={colorBendsRef}
+          colors={["#0D3B66"]}
+          speed={0.2}
+          frequency={1}
+          warpStrength={1}
+          scale={1}
+          intensity={1.5}
+          noise={0.15}
+          iterations={1}
+          bandWidth={1}
+          transparent={true}
+          mouseInfluence={0}
+          parallax={0}
+        />
       </div>
 
       {/* Topbar Background — slides up on analysis */}
