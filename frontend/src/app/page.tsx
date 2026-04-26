@@ -64,6 +64,9 @@ export default function Home() {
   // Analysis results from API
   const [analysisResult, setAnalysisResult] = useState<Record<string, unknown> | null>(null);
 
+  // Timeline scrubbing segment index
+  const [currentSegment, setCurrentSegment] = useState(0);
+
   useEffect(() => {
     if (!loading && !user) {
       router.replace("/login");
@@ -87,6 +90,62 @@ export default function Home() {
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
   }, []);
+
+  // Decode base64 → Float32Array
+  function decodeB64Float32(b64: string): Float32Array | null {
+    try {
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return new Float32Array(bytes.buffer);
+    } catch {
+      return null;
+    }
+  }
+
+  // Derive fingerprint data from analysisResult (no setState in effect)
+  const fingerprint = useMemo(() => {
+    const b64 = analysisResult?.combined_fingerprint_b64 as string | undefined;
+    return b64 ? decodeB64Float32(b64) : null;
+  }, [analysisResult]);
+
+  const temporalData = useMemo(() => {
+    const b64 = analysisResult?.temporal_fingerprints_b64 as string | undefined;
+    return b64 ? decodeB64Float32(b64) : null;
+  }, [analysisResult]);
+
+  // Extract timeline activations for AudioTimeline bar heights
+  const timelineActivations = useMemo(() => {
+    const timeline = analysisResult?.combined_timeline as
+      | Array<Record<string, number>>
+      | undefined;
+    if (!timeline || timeline.length === 0) return undefined;
+    return timeline.map((seg) => seg.whole_cortex ?? 0);
+  }, [analysisResult]);
+
+  // Extract region scores for MusicRadarChart
+  const radarData = useMemo(() => {
+    const scores = analysisResult?.combined_region_scores as
+      | Record<string, number>
+      | undefined;
+    if (!scores) return undefined;
+    const entries = [
+      { attribute: "Auditory", value: scores.auditory ?? 0 },
+      { attribute: "Sup. Temporal", value: scores.superior_temporal ?? 0 },
+      { attribute: "Temp.-Parietal", value: scores.temporo_parietal ?? 0 },
+      { attribute: "Inf. Frontal", value: scores.inferior_frontal ?? 0 },
+      { attribute: "Multisensory", value: scores.multisensory ?? 0 },
+      { attribute: "Whole Cortex", value: scores.whole_cortex ?? 0 },
+    ];
+    const max = Math.max(...entries.map((e) => e.value));
+    if (max === 0) return undefined;
+    return entries.map((e) => ({
+      attribute: e.attribute,
+      value: Math.round((e.value / max) * 100),
+    }));
+  }, [analysisResult]);
+
+  const peakSegment = (analysisResult?.peak_segment as number | undefined) ?? undefined;
 
   const layout = useMemo(() => {
     const contentH = vh - TOPBAR_H;
@@ -153,6 +212,7 @@ export default function Home() {
     setProcessingProgress(0);
     setProcessingTotal(0);
     setAnalysisResult(null);
+    setCurrentSegment(0);
   };
 
   // ── Real API: Creator Mode (file upload) ──
@@ -371,7 +431,9 @@ export default function Home() {
           className="w-full h-full"
           flashing={brainFlashing}
           interactive={viewState === "analysis"}
-          timePosition={0}
+          fingerprint={fingerprint}
+          temporalData={temporalData}
+          segmentIndex={currentSegment}
         />
       </motion.div>
 
@@ -422,11 +484,18 @@ export default function Home() {
               transition={{ duration: 0.6, delay: 0.4 }}
             >
               {/* Timeline — narrower, centered */}
-              <AudioTimeline duration={214} className="max-w-[260px] mx-auto w-full shrink-0" />
+              <AudioTimeline
+                duration={214}
+                segmentActivations={timelineActivations}
+                peakIndex={peakSegment}
+                currentIndex={currentSegment}
+                onSegmentChange={setCurrentSegment}
+                className="max-w-[260px] mx-auto w-full shrink-0"
+              />
 
               {/* Radar chart — constrained, centered */}
               <div className="flex justify-center shrink-0 mt-2">
-                <MusicRadarChart className="w-full max-w-[340px]" style={{ height: "min(220px, 26vh)" }} />
+                <MusicRadarChart data={radarData} className="w-full max-w-[340px]" style={{ height: "min(220px, 26vh)" }} />
               </div>
 
               {/* Chat + Song Recommendations */}
