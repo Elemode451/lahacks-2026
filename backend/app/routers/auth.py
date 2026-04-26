@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from supabase import create_client
 
 from app.config import settings
-from app.models.schemas import AuthResponse, LoginRequest, SignUpRequest
+from app.models.schemas import AuthResponse, LoginRequest, SignUpRequest, SyncProfileResponse
 from app.services.supabase_client import get_supabase_admin
+from app.utils.auth import require_auth
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -30,7 +31,13 @@ async def signup(req: SignUpRequest):
     try:
         sb = _ephemeral_client()
         result = sb.auth.sign_up(
-            {"email": req.email, "password": req.password}
+            {
+                "email": req.email,
+                "password": req.password,
+                "options": {
+                    "data": {"display_name": req.display_name},
+                },
+            }
         )
         user = result.user
         if user is None:
@@ -50,9 +57,9 @@ async def signup(req: SignUpRequest):
         )
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Signup error")
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, "Signup failed — please try again later")
 
 
 @router.post("/login", response_model=AuthResponse)
@@ -86,6 +93,47 @@ async def login(req: LoginRequest):
         )
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Login error")
-        raise HTTPException(401, str(e))
+        raise HTTPException(401, "Login failed — please check your credentials")
+
+
+@router.post("/sync-profile", response_model=SyncProfileResponse)
+async def sync_profile(user_id: str = Depends(require_auth)):
+    """Sync profile display name from OAuth provider metadata.
+
+    Call this from the frontend after an OAuth login (Google, Spotify, etc.)
+    to populate the profiles table with the user's provider display name.
+    If a display_name already exists it is preserved.
+    """
+    sb = get_supabase_admin()
+
+    # Check if a display name already exists
+    existing = (
+        sb.table("profiles")
+        .select("display_name")
+        .eq("user_id", user_id)
+        .maybe_single()
+        .execute()
+    )
+    if existing.data and existing.data.get("display_name"):
+        return SyncProfileResponse(display_name=existing.data["display_name"])
+
+    # Pull name from provider metadata
+    user = sb.auth.admin.get_user_by_id(user_id)
+    display_name = ""
+    if user and user.user:
+        meta = user.user.user_metadata or {}
+        display_name = (
+            meta.get("full_name")
+            or meta.get("name")
+            or meta.get("display_name")
+            or ""
+        )
+
+    if display_name:
+        sb.table("profiles").upsert(
+            {"user_id": user_id, "display_name": display_name}
+        ).execute()
+
+    return SyncProfileResponse(display_name=display_name)

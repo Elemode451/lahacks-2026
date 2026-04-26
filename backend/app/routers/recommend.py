@@ -35,33 +35,13 @@ from app.services.song_cache import (
     make_lookup_key,
     record_recommendations,
 )
+from app.utils.auth import get_user_id, try_get_user_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/recommendations", tags=["recommendations"])
 
 
-def _try_get_user_id(authorization: str | None) -> str | None:
-    """Extract user ID from the Supabase JWT. Returns None if unauthenticated."""
-    if not authorization or not authorization.startswith("Bearer "):
-        return None
-    token = authorization.removeprefix("Bearer ")
-    try:
-        from app.services.supabase_client import get_supabase_admin
-        sb = get_supabase_admin()
-        user = sb.auth.get_user(token)
-        if user is None or user.user is None:
-            return None
-        return user.user.id
-    except Exception:
-        return None
 
-
-def _require_user_id(authorization: str | None) -> str:
-    """Extract user ID or raise 401."""
-    uid = _try_get_user_id(authorization)
-    if uid is None:
-        raise HTTPException(401, "Authentication required for this endpoint")
-    return uid
 
 
 # ── Brain similarity ────────────────────────────────────────────────────────
@@ -98,7 +78,7 @@ async def get_similar(
     target_scores = target_data["region_scores"]
 
     exclude_keys: set[str] = {cache_key}
-    user_id = _try_get_user_id(authorization)
+    user_id = try_get_user_id(authorization)
     if user_id and req.exclude_previously_recommended:
         prev = await asyncio.to_thread(get_previously_recommended, user_id)
         exclude_keys |= prev
@@ -162,7 +142,7 @@ async def get_collaborative(
     Requires authentication. Finds users who analyzed the same songs,
     then surfaces songs those users analyzed that the current user hasn't.
     """
-    user_id = _require_user_id(authorization)
+    user_id = get_user_id(authorization)
 
     collab_results, similar_user_count = await asyncio.to_thread(
         find_collaborative_recommendations,
@@ -201,7 +181,7 @@ async def get_collaborative(
 @router.get("/history", response_model=RecommendationHistoryResponse)
 async def get_history(authorization: str | None = Header(None)):
     """Get songs previously recommended to the authenticated user."""
-    user_id = _require_user_id(authorization)
+    user_id = get_user_id(authorization)
 
     history = await asyncio.to_thread(get_recommendation_history, user_id)
 
@@ -231,7 +211,7 @@ async def clear_history(authorization: str | None = Header(None)):
     This resets de-duplication — the user will start seeing previously
     recommended songs again.
     """
-    user_id = _require_user_id(authorization)
+    user_id = get_user_id(authorization)
     count = await asyncio.to_thread(clear_recommendation_history, user_id)
     return {"cleared": count}
 
