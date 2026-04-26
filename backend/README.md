@@ -91,48 +91,37 @@ so the frontend can develop without a GPU. Set to `false` + configure
 
 ## Async Batch Analysis
 
-Analysis is fully async. Submit songs → get a `batch_id` → listen for results via SSE.
+Two requests:
 
-### Step 1: Submit
+1. **`POST /clusters/analyze`** — submit songs, returns `200 OK` with `{batch_id, total_songs}` instantly
+2. **`GET /clusters/batch/{batch_id}/events`** — SSE stream that pings the client as each song finishes
+
+Processing runs in the background. If the SSE client disconnects, processing
+continues and results are still cached to Supabase.
+
+### Usage
 
 ```js
-const resp = await fetch('/clusters/analyze', {
+// 1. Submit (returns immediately)
+const { batch_id } = await fetch('/clusters/analyze', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
     spotify_playlist_url: 'https://open.spotify.com/playlist/...',
   }),
-});
-const { batch_id, total_songs } = await resp.json();
-// Returns immediately: { batch_id: "abc123", total_songs: 12, status: "processing" }
-```
+}).then(r => r.json());
 
-### Step 2: Listen for results (SSE)
-
-```js
+// 2. Listen for pings (SSE — events arrive automatically)
 const es = new EventSource(`/clusters/batch/${batch_id}/events`);
 
 es.addEventListener('song_complete', (e) => {
   const data = JSON.parse(e.data);
-  // { song: "Coldplay - Yellow", index: 3, total: 12, cached: false }
   console.log(`[${data.index}/${data.total}] ${data.song} done`);
-});
-
-es.addEventListener('song_error', (e) => {
-  const data = JSON.parse(e.data);
-  // { song: "...", index: 3, total: 12, error: "No audio source" }
-  console.warn(`Skipped: ${data.song}`);
 });
 
 es.addEventListener('complete', (e) => {
   const result = JSON.parse(e.data);
-  // Full ClusterAnalyzeResponse with combined brain data
   console.log('All done!', result);
-  es.close();
-});
-
-es.addEventListener('error', (e) => {
-  console.error('Batch failed');
   es.close();
 });
 ```

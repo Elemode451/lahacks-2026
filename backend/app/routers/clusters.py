@@ -246,6 +246,9 @@ async def _process_batch(
         batch["done"] = True
         # Sentinel: signals SSE reader that no more events will arrive
         await q.put(None)
+        # Clean up batch entry after 5 minutes to avoid memory leak
+        await asyncio.sleep(300)
+        _batches.pop(batch_id, None)
 
 
 @router.post("/analyze")
@@ -255,22 +258,13 @@ async def analyze_cluster(
 ):
     """Submit songs for analysis. Returns immediately with a batch_id.
 
-    Processing runs in the background. Subscribe to events via
-    `GET /clusters/batch/{batch_id}/events` (SSE) to get notified
-    as each song finishes.
+    Processing runs in the background — the HTTP connection closes
+    right away. Listen for results on `GET /clusters/batch/{batch_id}/events`.
 
     ## Response
 
     ```json
     {"batch_id": "abc123", "total_songs": 12, "status": "processing"}
-    ```
-
-    ## Then listen for events
-
-    ```js
-    const es = new EventSource('/clusters/batch/abc123/events');
-    es.addEventListener('song_complete', (e) => { ... });
-    es.addEventListener('complete', (e) => { es.close(); });
     ```
     """
     all_cluster_songs = await _resolve_songs(req)
@@ -294,16 +288,7 @@ async def analyze_cluster(
 
 @router.get("/batch/{batch_id}/events")
 async def batch_events(batch_id: str, request: Request):
-    """Subscribe to SSE events for a batch.
-
-    Opens a long-lived connection. Events are pushed as each song
-    finishes processing. The connection closes after the final
-    `complete` or `error` event.
-
-    If the client disconnects and reconnects, any events that were
-    published while disconnected are lost, but the batch keeps
-    processing. Already-cached songs will appear instantly on the
-    next analysis request.
+    """SSE stream for a batch. Client opens this to receive pings as songs finish.
 
     ## SSE Events
 
@@ -313,6 +298,27 @@ async def batch_events(batch_id: str, request: Request):
     | `song_error` | `{song, index, total, error}` | Song failed (skipped) |
     | `complete` | Full `ClusterAnalyzeResponse` JSON | All songs done |
     | `error` | `{message}` | Fatal error |
+
+    ## Usage
+
+    ```js
+    // 1. Submit
+    const { batch_id } = await fetch('/clusters/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ spotify_playlist_url: '...' }),
+    }).then(r => r.json());
+
+    // 2. Listen for pings
+    const es = new EventSource(`/clusters/batch/${batch_id}/events`);
+    es.addEventListener('song_complete', (e) => {
+      console.log(JSON.parse(e.data));
+    });
+    es.addEventListener('complete', (e) => {
+      console.log('Done!', JSON.parse(e.data));
+      es.close();
+    });
+    ```
     """
     batch = _batches.get(batch_id)
     if not batch:
@@ -321,18 +327,20 @@ async def batch_events(batch_id: str, request: Request):
     q: asyncio.Queue = batch["events"]
 
     async def event_stream():
+        if batch["done"] and q.empty():
+            return
         while True:
             if await request.is_disconnected():
                 return
             try:
                 event = await asyncio.wait_for(q.get(), timeout=30.0)
             except asyncio.TimeoutError:
-                # Send keepalive comment to prevent proxy/client timeouts
+                if batch["done"] and q.empty():
+                    return
                 yield ": keepalive\n\n"
                 continue
 
             if event is None:
-                # Sentinel — batch is done
                 return
             yield event
 
