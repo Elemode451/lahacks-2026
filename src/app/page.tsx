@@ -139,7 +139,7 @@ export default function Home() {
           x: viewState === "analysis" ? layout.brainAnalysisX : layout.brainIntroX,
         }}
         transition={{
-          opacity: { duration: 1.0, ease: [0.16, 1, 0.3, 1] },
+          opacity: { duration: 0.6, ease: "linear", delay: 0.4 },
           x: { duration: 0.8, ease: panelEase },
         }}
       >
@@ -157,7 +157,7 @@ export default function Home() {
         style={{ left: layout.logoLeft, top: TOPBAR_H - 41 }}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ duration: 1.0, ease: [0.16, 1, 0.3, 1], delay: 0.15 }}
+        transition={{ duration: 0.6, ease: "linear", delay: 0.5 }}
         onClick={() => { cancelAnalyzeTimeout(); setBrainFlashing(false); setViewState("intro"); }}
       >
         <SeratoneLogo className="h-[41px] w-auto" />
@@ -176,20 +176,20 @@ export default function Home() {
         <AnimatePresence>
           {viewState === "analysis" && (
             <motion.div
-              className="absolute inset-0 p-12"
+              className="absolute inset-0 p-12 flex flex-col items-center justify-center"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.6, delay: 0.4 }}
             >
-              <div className="relative w-full max-w-[408px] mx-auto" style={{ aspectRatio: "1/1" }}>
+              <div className="relative w-full max-w-[380px]" style={{ aspectRatio: "1/1" }}>
                 <SpiderChartSvg className="absolute block inset-0 size-full" />
                 <p className="absolute -left-[50px] top-[35%] text-[#0d3b66] text-sm">danceability</p>
                 <p className="absolute left-[25%] bottom-[-20px] text-[#0d3b66] text-sm">energy</p>
                 <p className="absolute right-[25%] bottom-[-20px] text-[#0d3b66] text-sm">valence</p>
                 <p className="absolute -right-[20px] top-[35%] text-[#0d3b66] text-sm">tempo</p>
               </div>
-              <p className="mt-12 text-[#0d3b66] text-sm tracking-[-0.56px] max-w-sm whitespace-pre-wrap">
+              <p className="mt-12 text-[#0d3b66] text-sm tracking-[-0.56px] max-w-sm whitespace-pre-wrap text-center">
                 overview:
                 {"\n\n"}
                 This music fits a limbic-dominant profile with strong auditory cortex engagement. High introspective alignment suggests deep default-mode network resonance characteristic of emotional processing music.

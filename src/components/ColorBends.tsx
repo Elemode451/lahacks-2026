@@ -240,6 +240,7 @@ const ColorBends = forwardRef<ColorBendsHandle, ColorBendsProps>(function ColorB
       const h = container.clientHeight || 1;
       renderer.setSize(w, h, false);
       (material.uniforms.uCanvas.value as THREE.Vector2).set(w, h);
+      renderer.render(scene, camera);
     };
 
     handleResize();
