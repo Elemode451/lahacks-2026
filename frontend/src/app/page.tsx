@@ -388,11 +388,14 @@ export default function Home() {
   const handleRefreshRecommendations = useCallback(() => {
     const result = analysisResult;
     if (!result) return;
-    const analyzedSongs = (result as Record<string, unknown>).songs as Array<{ song_id?: string }> | undefined;
+    const analyzedSongs = (result as Record<string, unknown>).songs as Array<{ song_id?: string; spotify_id?: string }> | undefined;
     if (analyzedSongs?.length) {
-      const firstSongId = analyzedSongs[0].song_id;
-      if (firstSongId) {
-        fetchRecommendations(firstSongId);
+      const first = analyzedSongs[0];
+      const cacheKey = first.spotify_id
+        ? `spotify:${first.spotify_id}`
+        : first.song_id;
+      if (cacheKey) {
+        fetchRecommendations(cacheKey);
       }
     }
   }, [analysisResult, fetchRecommendations]);
@@ -517,11 +520,14 @@ export default function Home() {
               setBrainFlashing(false);
               setViewState("analysis");
               // Fetch recommendations for the first analyzed song
-              const analyzedSongs = data.songs as Array<{ song_id?: string }> | undefined;
+              const analyzedSongs = data.songs as Array<{ song_id?: string; spotify_id?: string }> | undefined;
               if (analyzedSongs?.length) {
-                const firstSongId = analyzedSongs[0].song_id;
-                if (firstSongId) {
-                  fetchRecommendations(firstSongId);
+                const first = analyzedSongs[0];
+                const cacheKey = first.spotify_id
+                  ? `spotify:${first.spotify_id}`
+                  : first.song_id;
+                if (cacheKey) {
+                  fetchRecommendations(cacheKey);
                 }
               }
             } else if (eventType === "error") {
