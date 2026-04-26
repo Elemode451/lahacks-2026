@@ -603,7 +603,7 @@ export default function Home() {
     // Append dominant emotions as a readable sentence
     const dominant = emotionalProfile?.dominant_emotions;
     if (dominant && dominant.length > 0) {
-      const formatted = dominant.map((e) => `**${e.toLowerCase()}**`);
+      const formatted = dominant.map((e) => e.toLowerCase());
       const emotionList =
         formatted.length <= 2
           ? formatted.join(" and ")

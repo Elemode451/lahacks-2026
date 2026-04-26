@@ -39,13 +39,14 @@ export default function EmotionalProfile({
   const displayed = emotionalProfile.emotions.filter(
     (e) => e.level === "high" || e.level === "medium" || dominant.has(e.name),
   );
-  // Deduplicate by name, keep highest intensity
-  const seen = new Set<string>();
-  const unique = displayed.filter((e) => {
-    if (seen.has(e.name)) return false;
-    seen.add(e.name);
-    return true;
-  });
+  const seen = new Map<string, Emotion>();
+  for (const e of displayed) {
+    const existing = seen.get(e.name);
+    if (!existing || e.intensity > existing.intensity) {
+      seen.set(e.name, e);
+    }
+  }
+  const unique = Array.from(seen.values());
 
   return (
     <motion.div
