@@ -434,6 +434,14 @@ export default function Home() {
       setProcessingProgress(1);
       setBrainFlashing(false);
       setViewState("analysis");
+
+      // Refresh saved analyses list
+      if (session?.access_token) {
+        apiFetch("/creator/analyses", {}, session.access_token)
+          .then((r) => (r.ok ? r.json() : []))
+          .then((data: SavedAnalysis[]) => setSavedAnalyses(data))
+          .catch(() => {});
+      }
     } catch (err) {
       setProcessingStatus(`Failed: ${err instanceof Error ? err.message : "Unknown error"}`);
       setBrainFlashing(false);
