@@ -1,4 +1,11 @@
-"""Recommendation and comparison endpoints."""
+"""Recommendation endpoints — split so the frontend controls blending.
+
+Three sub-endpoints under /recommendations:
+  POST /recommendations/similar        — brain-region cosine similarity
+  POST /recommendations/collaborative  — "users like you also like"
+  GET  /recommendations/history        — previously recommended songs
+  DELETE /recommendations/history      — clear recommendation history
+"""
 
 from __future__ import annotations
 
@@ -8,29 +15,29 @@ import logging
 from fastapi import APIRouter, HTTPException, Header
 
 from app.models.schemas import (
+    CollaborativeResponse,
     CompareRequest,
     CompareResponse,
-    RecommendRequest,
-    RecommendResponse,
+    RecommendationHistoryResponse,
+    SimilarRequest,
+    SimilarResponse,
     SimilarityComponents,
     SongInfo,
     SongMatch,
 )
 from app.services.song_cache import (
+    clear_recommendation_history,
     find_collaborative_recommendations,
     find_similar_songs,
     get_cached_lightweight,
     get_previously_recommended,
+    get_recommendation_history,
     make_lookup_key,
     record_recommendations,
 )
 
 logger = logging.getLogger(__name__)
-router = APIRouter(tags=["recommendations"])
-
-# Blending weights: brain similarity vs collaborative filtering
-_W_BRAIN = 0.6
-_W_COLLAB = 0.4
+router = APIRouter(prefix="/recommendations", tags=["recommendations"])
 
 
 def _try_get_user_id(authorization: str | None) -> str | None:
@@ -49,21 +56,27 @@ def _try_get_user_id(authorization: str | None) -> str | None:
         return None
 
 
-@router.post("/recommendations", response_model=RecommendResponse)
-async def get_recommendations(
-    req: RecommendRequest,
+def _require_user_id(authorization: str | None) -> str:
+    """Extract user ID or raise 401."""
+    uid = _try_get_user_id(authorization)
+    if uid is None:
+        raise HTTPException(401, "Authentication required for this endpoint")
+    return uid
+
+
+# ── Brain similarity ────────────────────────────────────────────────────────
+
+
+@router.post("/similar", response_model=SimilarResponse)
+async def get_similar(
+    req: SimilarRequest,
     authorization: str | None = Header(None),
 ):
-    """Find songs with similar brain-response patterns, blended with
-    collaborative filtering ("users like you also like").
+    """Find songs with similar brain-response patterns (cosine similarity on
+    the 6 brain-region activation values).
 
-    Authenticated users get personalized results:
-    - Previously recommended songs are excluded (unless include_previously_recommended=true)
-    - Collaborative filtering surfaces songs from users with similar taste
-    - Recommendations are tracked so future requests return fresh results
-
-    Unauthenticated users get brain-similarity-only results (still useful,
-    just not personalized).
+    Works without auth. If authenticated and `exclude_previously_recommended`
+    is true, songs already recommended to this user are filtered out.
     """
     if not req.youtube_url and not req.spotify_id:
         raise HTTPException(400, "Provide either youtube_url or spotify_id")
@@ -75,9 +88,6 @@ async def get_recommendations(
     if not cache_key:
         raise HTTPException(400, "Could not build lookup key from provided identifiers")
 
-    user_id = _try_get_user_id(authorization)
-
-    # Single lightweight query: region_scores + title + artist (no blob decompression)
     target_data = await asyncio.to_thread(get_cached_lightweight, cache_key)
     if target_data is None:
         raise HTTPException(
@@ -87,74 +97,24 @@ async def get_recommendations(
 
     target_scores = target_data["region_scores"]
 
-    # Get previously recommended songs for this user (for de-duplication)
-    prev_recommended: set[str] = set()
-    if user_id and not req.include_previously_recommended:
-        prev_recommended = await asyncio.to_thread(get_previously_recommended, user_id)
+    exclude_keys: set[str] = {cache_key}
+    user_id = _try_get_user_id(authorization)
+    if user_id and req.exclude_previously_recommended:
+        prev = await asyncio.to_thread(get_previously_recommended, user_id)
+        exclude_keys |= prev
 
-    # Build the exclusion set (target song + already recommended)
-    exclude_keys = {cache_key} | prev_recommended
-
-    # ── Brain similarity recommendations ────────────────────────────────────
-    # Request extra candidates to leave room for collaborative results
-    brain_n = req.n + 5
-    brain_results, catalog_size = await asyncio.to_thread(
+    similar, catalog_size = await asyncio.to_thread(
         find_similar_songs,
         target_scores=target_scores,
         exclude_keys=exclude_keys,
-        n=brain_n,
+        n=req.n,
     )
-    for r in brain_results:
-        r["source"] = "brain_similarity"
 
-    # ── Collaborative filtering ("users like you also like") ────────────────
-    collab_results: list[dict] = []
-    collab_available = False
-    if user_id:
-        collab_results = await asyncio.to_thread(
-            find_collaborative_recommendations,
-            user_id=user_id,
-            exclude_keys=exclude_keys,
-            n=req.n,
-        )
-        collab_available = len(collab_results) > 0
-
-    # ── Blend results ───────────────────────────────────────────────────────
-    # Merge brain + collaborative results, avoiding duplicates.
-    # Songs appearing in both lists get a boosted blended score.
-    brain_by_key = {r["lookup_key"]: r for r in brain_results}
-    collab_by_key = {r["lookup_key"]: r for r in collab_results}
-    all_keys = list(brain_by_key.keys())
-    for k in collab_by_key:
-        if k not in brain_by_key:
-            all_keys.append(k)
-
-    blended: list[dict] = []
-    for key in all_keys:
-        brain = brain_by_key.get(key)
-        collab = collab_by_key.get(key)
-
-        if brain and collab:
-            # Song found by both signals — boost it
-            score = _W_BRAIN * brain["similarity"] + _W_COLLAB * collab["similarity"]
-            entry = {**brain, "similarity": round(score, 4), "source": "both"}
-        elif brain:
-            entry = {**brain, "similarity": round(brain["similarity"] * _W_BRAIN, 4)}
-        else:
-            entry = {**collab, "similarity": round(collab["similarity"] * _W_COLLAB, 4)}
-
-        blended.append(entry)
-
-    blended.sort(key=lambda x: x["similarity"], reverse=True)
-    final = blended[: req.n]
-
-    # ── Build response ──────────────────────────────────────────────────────
     target_info = SongInfo(
         song_id=cache_key,
         title=target_data["title"],
         artist=target_data["artist"],
     )
-
     recommendations = [
         SongMatch(
             song=SongInfo(
@@ -170,38 +130,124 @@ async def get_recommendations(
                     - float(r["region_scores"].get(region, 0.0))
                 ) < 0.01
             ],
-            source=r.get("source", "brain_similarity"),
+            source="brain_similarity",
         )
-        for r in final
+        for r in similar
     ]
 
-    # ── Record recommendations for this user (non-blocking) ─────────────────
-    if user_id and final:
+    # Record these recommendations (non-blocking)
+    if user_id and similar:
         asyncio.get_event_loop().run_in_executor(
-            None, record_recommendations, user_id, final,
+            None, record_recommendations, user_id,
+            [{**r, "source": "brain_similarity"} for r in similar],
         )
 
-    return RecommendResponse(
+    return SimilarResponse(
         target=target_info,
         catalog_size=catalog_size,
         recommendations=recommendations,
-        collaborative_available=collab_available,
     )
+
+
+# ── Collaborative filtering ────────────────────────────────────────────────
+
+
+@router.post("/collaborative", response_model=CollaborativeResponse)
+async def get_collaborative(
+    n: int = 10,
+    authorization: str | None = Header(None),
+):
+    """'Users like you also like' — collaborative filtering.
+
+    Requires authentication. Finds users who analyzed the same songs,
+    then surfaces songs those users analyzed that the current user hasn't.
+    """
+    user_id = _require_user_id(authorization)
+
+    collab_results, similar_user_count = await asyncio.to_thread(
+        find_collaborative_recommendations,
+        user_id=user_id,
+        n=min(n, 50),
+    )
+
+    recommendations = [
+        SongMatch(
+            song=SongInfo(
+                song_id=r["lookup_key"],
+                title=r["title"],
+                artist=r["artist"],
+            ),
+            similarity_score=r["similarity"],
+            source="collaborative",
+        )
+        for r in collab_results
+    ]
+
+    # Record these recommendations (non-blocking)
+    if collab_results:
+        asyncio.get_event_loop().run_in_executor(
+            None, record_recommendations, user_id, collab_results,
+        )
+
+    return CollaborativeResponse(
+        recommendations=recommendations,
+        similar_user_count=similar_user_count,
+    )
+
+
+# ── Recommendation history ──────────────────────────────────────────────────
+
+
+@router.get("/history", response_model=RecommendationHistoryResponse)
+async def get_history(authorization: str | None = Header(None)):
+    """Get songs previously recommended to the authenticated user."""
+    user_id = _require_user_id(authorization)
+
+    history = await asyncio.to_thread(get_recommendation_history, user_id)
+
+    songs = [
+        SongMatch(
+            song=SongInfo(
+                song_id=r["lookup_key"],
+                title=r["title"],
+                artist=r["artist"],
+            ),
+            similarity_score=r.get("similarity", 0.0),
+            source=r.get("source", "brain_similarity"),
+        )
+        for r in history
+    ]
+
+    return RecommendationHistoryResponse(
+        songs=songs,
+        total=len(songs),
+    )
+
+
+@router.delete("/history")
+async def clear_history(authorization: str | None = Header(None)):
+    """Clear all recommendation history for the authenticated user.
+
+    This resets de-duplication — the user will start seeing previously
+    recommended songs again.
+    """
+    user_id = _require_user_id(authorization)
+    count = await asyncio.to_thread(clear_recommendation_history, user_id)
+    return {"cleared": count}
+
+
+# ── Compare (unchanged) ────────────────────────────────────────────────────
 
 
 @router.post("/compare", response_model=CompareResponse)
 async def compare_fingerprints(req: CompareRequest):
     """Compare two fingerprints and return full similarity breakdown.
 
-    Returns global, temporal arc, and peak similarity components,
-    plus region-level matching/differences.
-
     TODO: Retrieve fingerprints from storage and compute real comparison.
     """
     if len(req.fingerprint_ids) != 2:
         raise HTTPException(400, "Exactly 2 fingerprint IDs required")
 
-    # TODO: Retrieve fingerprints and compute real comparison
     return CompareResponse(
         similarity_score=0.0,
         similarity_label="low",

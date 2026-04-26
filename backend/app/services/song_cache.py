@@ -344,20 +344,92 @@ def get_previously_recommended(user_id: str) -> set[str]:
         return set()
 
 
+def get_recommendation_history(user_id: str) -> list[dict]:
+    """Get full recommendation history with metadata for this user."""
+    client = _get_client()
+    if client is None:
+        return []
+    try:
+        resp = (
+            client.table("user_recommendations")
+            .select("song_key,source,similarity_score,created_at")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        rows = resp.data or []
+        if not rows:
+            return []
+
+        # Deduplicate by song_key (keep most recent)
+        seen: set[str] = set()
+        unique: list[dict] = []
+        for row in rows:
+            if row["song_key"] not in seen:
+                seen.add(row["song_key"])
+                unique.append(row)
+
+        # Fetch metadata
+        keys = [r["song_key"] for r in unique]
+        meta_resp = (
+            client.table("song_cache")
+            .select("lookup_key,title,artist,region_scores")
+            .in_("lookup_key", keys)
+            .execute()
+        )
+        metadata = {r["lookup_key"]: r for r in (meta_resp.data or [])}
+
+        results = []
+        for row in unique:
+            meta = metadata.get(row["song_key"])
+            if meta:
+                results.append({
+                    "lookup_key": row["song_key"],
+                    "title": meta.get("title", "Unknown"),
+                    "artist": meta.get("artist", "Unknown"),
+                    "source": row.get("source", "brain_similarity"),
+                    "similarity": row.get("similarity_score", 0.0),
+                })
+        return results
+    except Exception:
+        logger.exception("Failed to fetch recommendation history for user %s", user_id)
+        return []
+
+
+def clear_recommendation_history(user_id: str) -> int:
+    """Clear all recommendation history for this user. Returns count deleted."""
+    client = _get_client()
+    if client is None:
+        return 0
+    try:
+        resp = (
+            client.table("user_recommendations")
+            .delete()
+            .eq("user_id", user_id)
+            .execute()
+        )
+        count = len(resp.data or [])
+        logger.info("Cleared %d recommendations for user %s", count, user_id)
+        return count
+    except Exception:
+        logger.exception("Failed to clear recommendation history for user %s", user_id)
+        return 0
+
+
 def find_collaborative_recommendations(
     user_id: str,
     exclude_keys: set[str] | None = None,
     n: int = 10,
-) -> list[dict]:
+) -> tuple[list[dict], int]:
     """'Users like you also like' — collaborative filtering.
 
     Finds users who analyzed the same songs as the current user,
     then surfaces songs those users analyzed that the current user hasn't.
-    Returns results sorted by frequency (more users = stronger signal).
+    Returns (results, similar_user_count) sorted by frequency.
     """
     client = _get_client()
     if client is None:
-        return []
+        return [], 0
 
     skip = set(exclude_keys or ())
 
@@ -371,7 +443,7 @@ def find_collaborative_recommendations(
         )
         my_songs = {row["song_key"] for row in (resp.data or [])}
         if not my_songs:
-            return []
+            return [], 0
 
         # Step 2: Find other users who analyzed at least one of the same songs
         resp = (
@@ -383,7 +455,7 @@ def find_collaborative_recommendations(
         )
         similar_user_ids = {row["user_id"] for row in (resp.data or [])}
         if not similar_user_ids:
-            return []
+            return [], 0
 
         # Step 3: Get all songs those similar users have analyzed
         resp = (
@@ -402,7 +474,7 @@ def find_collaborative_recommendations(
                 song_counts[key] += 1
 
         if not song_counts:
-            return []
+            return [], len(similar_user_ids)
 
         # Step 4: Fetch metadata for the top songs
         top_keys = [k for k, _ in song_counts.most_common(n)]
@@ -432,8 +504,8 @@ def find_collaborative_recommendations(
             "Collaborative recs for user %s: %d similar users, %d candidates",
             user_id, len(similar_user_ids), len(results),
         )
-        return results
+        return results, len(similar_user_ids)
 
     except Exception:
         logger.exception("Collaborative filtering failed for user %s", user_id)
-        return []
+        return [], 0
