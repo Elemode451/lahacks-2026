@@ -2,11 +2,11 @@ import svgPaths from "./svg-syb5hmyv5i";
 import imgColorBends from "./194060f58cd738027524c8d246cb8a7bc2088d66.png";
 import imgBrain3D from "./162f484e265b9f133d3cfbd0716795f3c1a36640.png";
 
-function Seratune() {
+function Seratone() {
   return (
-    <div className="absolute h-[40.576px] left-[204px] top-[53px] w-[242.147px]" data-name="seratune">
+    <div className="absolute h-[40.576px] left-[204px] top-[53px] w-[242.147px]" data-name="seratone">
       <svg className="absolute block inset-0 size-full" fill="none" preserveAspectRatio="none" viewBox="0 0 242.147 40.576">
-        <g id="seratune">
+        <g id="seratone">
           <path d={svgPaths.p3d452600} fill="var(--fill-0, #0D3B66)" id="Vector" />
           <path d={svgPaths.p2afa2800} fill="var(--fill-0, #0D3B66)" id="Vector_2" />
           <path d={svgPaths.p35e7fdf0} fill="var(--fill-0, #0D3B66)" id="Vector_3" />
@@ -25,7 +25,7 @@ function Seratune() {
 function Logo() {
   return (
     <div className="absolute contents left-[193px] top-[53px]" data-name="logo">
-      <Seratune />
+      <Seratone />
       <div className="absolute flex h-[24px] items-center justify-center left-[193px] top-[68.94px] w-[3px]" style={{ "--transform-inner-width": "1200", "--transform-inner-height": "0" } as React.CSSProperties}>
         <div className="-rotate-90 flex-none">
           <div className="bg-[#f4d35e] h-[3px] w-[24px]" data-name="Bar 3" />

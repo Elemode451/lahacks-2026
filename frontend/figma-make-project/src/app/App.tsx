@@ -1,7 +1,7 @@
 import { motion, AnimatePresence } from "motion/react";
 import { useState, useRef, useEffect } from "react";
 import {
-  SeratuneLogo,
+  SeratoneLogo,
   SpiderChartSvg,
   SoundBarsIcon,
   FileIcon,
@@ -81,7 +81,7 @@ export default function App() {
           <div className="bg-[#ee964b] h-[24px] w-[3px]" />
           <div className="bg-[#f95738] h-[24px] w-[3px]" />
         </div>
-        <SeratuneLogo className="h-[40.576px] w-[242.147px]" />
+        <SeratoneLogo className="h-[40.576px] w-[242.147px]" />
       </div>
 
       {/* Right Section (Analysis View) */}
