@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import dynamic from "next/dynamic";
 import { X, Send } from "lucide-react";
 import {
@@ -31,6 +31,19 @@ export default function Home() {
   const [inputValue, setInputValue] = useState("");
   const [brainFlashing, setBrainFlashing] = useState(false);
   const colorBendsRef = useRef<ColorBendsHandle>(null);
+  const [viewportScale, setViewportScale] = useState(1);
+
+  const updateScale = useCallback(() => {
+    const sw = window.innerWidth / 1280;
+    const sh = window.innerHeight / 832;
+    setViewportScale(Math.min(sw, sh, 1));
+  }, []);
+
+  useEffect(() => {
+    updateScale();
+    window.addEventListener("resize", updateScale);
+    return () => window.removeEventListener("resize", updateScale);
+  }, [updateScale]);
 
   const handleAddSong = (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -53,9 +66,10 @@ export default function Home() {
   };
 
   return (
+    <div className="w-screen h-screen overflow-hidden bg-[#fffdf5] flex items-center justify-center">
     <div
-      className="relative w-[1280px] h-[832px] overflow-hidden bg-[#fffdf5] font-sans selection:bg-[#f95738] selection:text-white max-w-[100vw] max-h-[100vh] flex-shrink-0"
-      style={{ transformOrigin: "top left" }}
+      className="relative w-[1280px] h-[832px] overflow-hidden bg-[#fffdf5] font-sans selection:bg-[#f95738] selection:text-white flex-shrink-0"
+      style={{ transform: `scale(${viewportScale})`, transformOrigin: "center center" }}
     >
       {/* Color Bends Background — replaces the static figma image */}
       <div className="absolute left-[-617px] top-[-93px] w-[1920px] h-[1080px] pointer-events-none">
@@ -171,7 +185,7 @@ export default function Home() {
               height: viewState === "intro" ? 50 : 650,
               x: viewState === "intro" ? 901 : 181,
               y: viewState === "intro" ? 75 : 137,
-              borderRadius: 100,
+              borderRadius: viewState === "intro" ? 100 : 40,
               opacity: 1,
               scale: 1,
             }}
@@ -201,15 +215,16 @@ export default function Home() {
               </motion.button>
             ) : (
               <motion.div
-                className="relative w-full h-full p-12 flex flex-col"
+                className="absolute flex flex-col"
+                style={{ top: 40, left: 52, right: 52, bottom: 32 }}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.2, duration: 0.3 }}
               >
                 {/* Header: "import:" left, icon tabs right */}
-                <div className="flex justify-between items-start mb-6">
+                <div className="flex justify-between items-start mb-5">
                   <h2 className="font-medium text-[#f95738] text-[24px] tracking-[-0.96px]">import:</h2>
-                  <div className="flex gap-6 mr-6 mt-1 text-[#f95738] items-center">
+                  <div className="flex gap-6 mt-1 text-[#f95738] items-center">
                     <button
                       className={`transition-all duration-200 cursor-pointer ${importType === "file" ? "opacity-100 scale-110" : "opacity-50 hover:opacity-80"}`}
                       onClick={() => setImportType("file")}
@@ -232,7 +247,7 @@ export default function Home() {
                 </div>
 
                 {/* Content area */}
-                <div className="flex-1 relative flex flex-col">
+                <div className="flex-1 min-h-0 relative flex flex-col">
                   <AnimatePresence mode="wait">
                     {importType === "file" ? (
                       <motion.div
@@ -241,7 +256,7 @@ export default function Home() {
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: 0.98 }}
                         transition={{ duration: 0.2 }}
-                        className="relative z-10 w-full h-full p-8 flex flex-col items-center justify-center text-[#f95738]"
+                        className="relative z-10 w-full flex-1 p-8 flex flex-col items-center justify-center text-[#f95738]"
                       >
                         <div className="absolute inset-0 rounded-[30px] border-4 border-[#f95738] border-dashed pointer-events-none opacity-50" />
                         <UploadIcon className="size-[40px] mb-3" />
@@ -255,7 +270,7 @@ export default function Home() {
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: 0.98 }}
                         transition={{ duration: 0.2 }}
-                        className="relative z-10 w-full h-full flex flex-col"
+                        className="relative z-10 w-full flex-1 min-h-0 flex flex-col"
                       >
                         <form onSubmit={handleAddSong} className="w-full max-w-xl mx-auto mt-2">
                           <div className="relative flex items-center">
@@ -326,7 +341,7 @@ export default function Home() {
                 </div>
 
                 {/* Bottom: song count + analyze button */}
-                <div className="mt-6 flex justify-between items-center pb-2 pl-4">
+                <div className="mt-4 flex justify-between items-center shrink-0">
                   <div className="text-[#f95738] font-medium text-lg tracking-tight">
                     {songs.length} {songs.length === 1 ? "song" : "songs"} added
                   </div>
@@ -359,6 +374,7 @@ export default function Home() {
           background: rgba(249,87,56,0.5);
         }
       `}</style>
+    </div>
     </div>
   );
 }
