@@ -441,22 +441,31 @@ export default function Home() {
       setBrainFlashing(false);
       setViewState("analysis");
 
-      // Fetch recommendations for the creator's uploaded track
-      const songData = result.song as { song_id?: string; spotify_id?: string } | undefined;
-      if (songData) {
-        const cacheKey = songData.spotify_id
-          ? `spotify:${songData.spotify_id}`
-          : songData.song_id;
-        if (cacheKey) {
-          fetchRecommendations(cacheKey);
-        }
+      // Populate recommendations directly from top_matches in the response
+      // (creator mode uses upload:{hash} cache keys which don't match song_id,
+      //  so we can't call fetchRecommendations — use the already-computed matches)
+      const topMatches = result.top_matches as Array<{
+        song: { song_id: string; title: string; artist: string };
+        similarity_score: number;
+        source?: string;
+      }> | undefined;
+      if (topMatches?.length) {
+        setRecommendations(
+          topMatches.map((m) => ({
+            song_id: m.song.song_id,
+            title: m.song.title,
+            artist: m.song.artist,
+            similarity_score: m.similarity_score,
+            source: m.source ?? "brain_similarity",
+          })),
+        );
       }
     } catch (err) {
       setProcessingStatus(`Failed: ${err instanceof Error ? err.message : "Unknown error"}`);
       setBrainFlashing(false);
       setViewState("importing");
     }
-  }, [uploadedFiles, session, fetchRecommendations]);
+  }, [uploadedFiles, session]);
 
   // ── Real API: Listener Mode (Spotify/YouTube links) ──
   const handleListenerAnalyze = useCallback(async () => {
