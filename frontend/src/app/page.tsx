@@ -12,8 +12,8 @@ import {
   YouTubeIcon,
   UploadIcon,
 } from "@/components/Icons";
-import ColorBends, { type ColorBendsHandle } from "@/components/ColorBends";
 import { useAuth } from "@/lib/auth-context";
+import { useAppBackground } from "./providers";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import type { RecommendedSong } from "@/components/SongRecommendations";
@@ -36,6 +36,9 @@ const SongRecommendations = dynamic(() => import("@/components/SongRecommendatio
 const KeyInfoDisplay = dynamic(() => import("@/components/KeyInfo"), {
   ssr: false,
 });
+const EmotionalProfile = dynamic(() => import("@/components/EmotionalProfile"), {
+  ssr: false,
+});
 
 type ViewState = "intro" | "importing" | "analyzing" | "processing" | "analysis";
 type ImportType = "file" | "spotify" | "youtube";
@@ -53,8 +56,8 @@ export default function Home() {
   const [inputValue, setInputValue] = useState("");
   const [brainFlashing, setBrainFlashing] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+  const { setColorMode } = useAppBackground();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const colorBendsRef = useRef<ColorBendsHandle>(null);
   const analyzeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const [vw, setVw] = useState(1280);
@@ -90,6 +93,11 @@ export default function Home() {
       router.replace("/login");
     }
   }, [user, loading, router]);
+
+  // Transition global ColorBends from orange (login) to blue (app)
+  useEffect(() => {
+    setColorMode("blue");
+  }, [setColorMode]);
 
   // Fetch saved creator analyses on mount
   useEffect(() => {
@@ -580,49 +588,51 @@ export default function Home() {
 
   useEffect(() => () => cancelAnalyzeTimeout(), []);
 
-  // Build overview text from analysis result
-  const overviewText = analysisResult
-    ? (analysisResult as Record<string, unknown>).summary as string ??
-      (analysisResult as Record<string, unknown>).vibe_description as string ??
-      "This music fits a limbic-dominant profile with strong auditory cortex engagement. High introspective alignment suggests deep default-mode network resonance characteristic of emotional processing music."
-    : "This music fits a limbic-dominant profile with strong auditory cortex engagement. High introspective alignment suggests deep default-mode network resonance characteristic of emotional processing music.";
+  // Build overview text from analysis result, enriched with emotional profile data
+  const overviewText = useMemo(() => {
+    const fallback =
+      "This music fits a limbic-dominant profile with strong auditory cortex engagement. High introspective alignment suggests deep default-mode network resonance characteristic of emotional processing music.";
+    if (!analysisResult) return fallback;
+
+    const emotionalProfile = analysisResult.emotional_profile as
+      | { summary?: string; dominant_emotions?: string[] }
+      | undefined;
+
+    let text =
+      emotionalProfile?.summary ??
+      (analysisResult.summary as string | undefined) ??
+      (analysisResult.vibe_description as string | undefined) ??
+      fallback;
+
+    const dominant = emotionalProfile?.dominant_emotions;
+    if (dominant && dominant.length > 0) {
+      const formatted = dominant.map((emotion) => emotion.toLowerCase());
+      const emotionList =
+        formatted.length <= 2
+          ? formatted.join(" and ")
+          : `${formatted.slice(0, -1).join(", ")}, and ${formatted[formatted.length - 1]}`;
+      text += ` The primary emotional responses predicted are ${emotionList}.`;
+    }
+
+    return text;
+  }, [analysisResult]);
 
   if (loading || !user) {
-    return (
-      <div className="h-full flex items-center justify-center bg-[#fffdf5]">
-        <div className="w-6 h-6 border-2 border-[#f95738] border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+    return <div className="h-full" />;
   }
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-[#fffdf5] font-sans selection:bg-[#f95738] selection:text-white">
-      {/* Color Bends Background — starts from top so topbar slide reveals it */}
-      <div className="absolute inset-0 pointer-events-none" style={{ top: 0, opacity: 0.75 }}>
-        <ColorBends
-          ref={colorBendsRef}
-          colors={["#0D3B66"]}
-          speed={0.2}
-          frequency={1}
-          warpStrength={1}
-          scale={1}
-          intensity={1.5}
-          noise={0.15}
-          iterations={1}
-          bandWidth={1}
-          transparent={true}
-          mouseInfluence={0}
-          parallax={0}
-        />
-      </div>
-
-      {/* Topbar Background — slides up on analysis */}
+    <div className="relative w-screen h-screen overflow-hidden font-sans selection:bg-[#f95738] selection:text-white">
+      {/* Topbar Background — fades in on mount, slides up on analysis */}
       <motion.div
         className="absolute bg-[#fffdf5] left-0 top-0 w-full z-0"
         style={{ height: TOPBAR_H }}
-        initial={false}
-        animate={{ y: viewState === "analysis" ? -TOPBAR_H : 0 }}
-        transition={{ duration: 0.8, ease: panelEase }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1, y: viewState === "analysis" ? -TOPBAR_H : 0 }}
+        transition={{
+          opacity: { duration: 0.5, ease: "easeOut", delay: 0.1 },
+          y: { duration: 0.8, ease: panelEase },
+        }}
       />
 
       {/* 3D Brain — slides left on analysis */}
@@ -635,7 +645,7 @@ export default function Home() {
           x: viewState === "analysis" ? layout.brainAnalysisX : layout.brainIntroX,
         }}
         transition={{
-          opacity: { duration: 0.6, ease: "linear", delay: 0.4 },
+          opacity: { duration: 0.6, ease: "easeOut", delay: 0.1 },
           x: { duration: 0.8, ease: panelEase },
         }}
       >
@@ -655,7 +665,7 @@ export default function Home() {
         style={{ left: 0, width: "50vw", top: TOPBAR_H - 41 }}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ duration: 0.6, ease: "linear", delay: 0.5 }}
+        transition={{ duration: 0.5, ease: "easeOut", delay: 0.1 }}
         onClick={resetState}
       >
         <SeratoneLogo className="h-[41px] w-auto" />
@@ -731,6 +741,24 @@ export default function Home() {
                   <MusicRadarChart data={radarData} className="w-full max-w-[340px]" style={{ height: "min(220px, 26vh)" }} />
                 </div>
               </motion.div>
+
+              <EmotionalProfile
+                emotionalProfile={
+                  analysisResult?.emotional_profile as
+                    | {
+                        emotions?: {
+                          name: string;
+                          intensity: number;
+                          level: string;
+                          description: string;
+                        }[];
+                        dominant_emotions?: string[];
+                        summary?: string;
+                      }
+                    | null
+                    | undefined
+                }
+              />
 
               {/* Key Info */}
               <KeyInfoDisplay
@@ -910,7 +938,7 @@ export default function Home() {
                 whileHover={{ scale: 1.04 }}
                 whileTap={{ scale: 0.96 }}
               >
-                <span className="font-semibold text-xl tracking-[-0.8px]" style={{ fontFamily: "var(--font-display)" }}>import</span>
+                <span className="font-semibold text-xl tracking-[-0.8px]">import</span>
                 <SoundBarsIcon className="size-6" />
               </motion.button>
             ) : (
@@ -923,7 +951,7 @@ export default function Home() {
               >
                 {/* Header: "import:" left, icon tabs right */}
                 <div className="flex justify-between items-start">
-                  <h2 className="text-[#f95738] text-[clamp(18px,2vw,26px)] tracking-[-1px] leading-none" style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}>import:</h2>
+                  <h2 className="text-[#f95738] text-[clamp(18px,2vw,26px)] tracking-[-1px] leading-none font-semibold">import:</h2>
                   <div className="flex gap-[clamp(8px,1.2vw,14px)] text-[#f95738] items-center">
                     {([["file", FileIcon], ["spotify", SpotifyIcon], ["youtube", YouTubeIcon]] as const).map(([type, Icon]) => (
                       <motion.button
