@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     static_dir: str = "./app/static"
     audio_cache_dir: str = "/tmp/seratune_audio"
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 
 settings = Settings()
