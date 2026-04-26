@@ -133,11 +133,15 @@ export default function Home() {
       <motion.div
         className={`absolute ${viewState !== "analysis" ? "pointer-events-none" : ""} z-10 ${brainFlashing ? "brain-flash" : ""}`}
         style={{ width: layout.brainW, height: layout.brainH, top: layout.brainTop }}
-        initial={false}
+        initial={{ opacity: 0, x: layout.brainIntroX }}
         animate={{
+          opacity: 1,
           x: viewState === "analysis" ? layout.brainAnalysisX : layout.brainIntroX,
         }}
-        transition={{ duration: 0.8, ease: panelEase }}
+        transition={{
+          opacity: { duration: 1.0, ease: [0.16, 1, 0.3, 1] },
+          x: { duration: 0.8, ease: panelEase },
+        }}
       >
         <BrainScene
           className="w-full h-full"
@@ -148,13 +152,16 @@ export default function Home() {
       </motion.div>
 
       {/* Logo Group — clickable, returns to intro */}
-      <div
-        className="absolute z-20 flex items-end cursor-pointer transition-opacity hover:opacity-80"
+      <motion.div
+        className="absolute z-20 flex items-end cursor-pointer hover:opacity-80"
         style={{ left: layout.logoLeft, top: TOPBAR_H - 41 }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 1.0, ease: [0.16, 1, 0.3, 1], delay: 0.15 }}
         onClick={() => { cancelAnalyzeTimeout(); setBrainFlashing(false); setViewState("intro"); }}
       >
         <SeratoneLogo className="h-[41px] w-auto" />
-      </div>
+      </motion.div>
 
       {/* Right Section (Analysis View) — slides in from right */}
       <motion.div
@@ -204,7 +211,7 @@ export default function Home() {
       <AnimatePresence>
         {viewState !== "analysis" && (
           <motion.div
-            className="absolute bg-[rgba(249,87,56,0.08)] overflow-hidden z-20 shadow-sm backdrop-blur-[40px] border border-[rgba(249,87,56,0.15)]"
+            className="absolute bg-[rgba(249,87,56,0.2)] overflow-hidden z-20 shadow-sm backdrop-blur-[40px] border border-[rgba(249,87,56,0.4)]"
             initial={false}
             animate={{
               width: viewState === "intro" ? layout.pillW : layout.panelW,
@@ -330,7 +337,7 @@ export default function Home() {
                                   animate={{ opacity: 1 }}
                                   className="h-full flex flex-col items-center justify-center text-[#f95738]"
                                 >
-                                  <p className="text-[clamp(13px,1.1vw,16px)] font-medium tracking-tight opacity-60">List is empty</p>
+                                  <p className="text-[clamp(13px,1.1vw,16px)] font-medium tracking-tight">List is empty</p>
                                   <p className="text-[clamp(11px,0.9vw,13px)] mt-1.5 text-center max-w-xs opacity-40">
                                     {importType === "spotify" && "Add Spotify links to begin analysis"}
                                     {importType === "youtube" && "Add YouTube video links to begin analysis"}
@@ -370,7 +377,7 @@ export default function Home() {
 
                 {/* Bottom: song count left + analyze pill right */}
                 <div className="flex justify-between items-center shrink-0" style={{ marginTop: "clamp(12px, 3%, 24px)" }}>
-                  <span className="text-[#f95738] font-medium text-[clamp(12px,1.1vw,16px)] tracking-[-0.5px] opacity-60">
+                  <span className="text-[#f95738] font-medium text-[clamp(12px,1.1vw,16px)] tracking-[-0.5px]">
                     {songs.length} {songs.length === 1 ? "song" : "songs"} added
                   </span>
                   <button
