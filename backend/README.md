@@ -33,8 +33,12 @@ API docs at http://localhost:8000/docs
 | `SUPABASE_SERVICE_KEY` | Supabase service role key |
 | `SPOTIFY_CLIENT_ID` | Spotify Developer app client ID |
 | `SPOTIFY_CLIENT_SECRET` | Spotify Developer app client secret |
+| `SPOTIFY_REDIRECT_URI` | Spotify OAuth redirect URI (e.g. `http://localhost:8000/auth/spotify/callback`) |
+| `FRONTEND_URL` | Frontend origin for CORS and redirects (default: `http://localhost:3000`) |
 | `USE_MOCK_TRIBE` | `true` to use mock fingerprints (default), `false` for real TRIBE |
-| `TRIBE_WORKER_URL` | URL of the TRIBE v2 inference worker |
+| `TRIBE_WORKER_URL` | URL of the TRIBE v2 inference worker (Colab tunnel) |
+| `ASI1_API_KEY` | ASI:One API key for Sera agent chat |
+| `DEBUG` | Enable debug logging |
 
 ## API Endpoints
 
@@ -42,42 +46,53 @@ API docs at http://localhost:8000/docs
 |--------|------|------|-------------|
 | POST | `/auth/signup` | No | Create account |
 | POST | `/auth/login` | No | Log in |
-| GET | `/spotify/search?q=...` | No | Search Spotify |
+| POST | `/auth/sync-profile` | Yes | Sync profile after OAuth |
+| GET | `/auth/spotify` | No | Start Spotify OAuth flow |
+| GET | `/auth/spotify/callback` | No | Spotify OAuth callback |
+| POST | `/auth/spotify/refresh` | No | Refresh Spotify access token |
+| GET | `/spotify/search?q=...` | No | Search Spotify catalog |
 | POST | `/creator/analyze` | No | Upload + analyze a track (creator mode) |
-| POST | `/clusters/analyze` | Optional | Analyze a song cluster (listener mode); tracks user interactions when authenticated |
-| POST | `/clusters/analyze/stream` | Optional | Same as above but streams per-song progress via SSE |
-| POST | `/recommendations/similar` | Optional | Brain-region cosine similarity recommendations; with auth can exclude previously recommended songs |
-| POST | `/recommendations/collaborative` | Required | "Users like you also like" — collaborative filtering |
-| GET | `/recommendations/history` | Required | Previously recommended songs for the user |
-| DELETE | `/recommendations/history` | Required | Clear recommendation history (resets de-duplication) |
+| GET | `/creator/analyses` | Yes | List creator's analyses |
+| POST | `/clusters/analyze` | Optional | Analyze a song cluster (synchronous — waits for all songs) |
+| POST | `/clusters/analyze/stream` | Optional | Same but streams per-song progress via SSE |
+| POST | `/agent/chat` | Yes | Chat with Sera AI music consultant |
+| POST | `/recommendations/similar` | Optional | Brain-region cosine similarity recommendations |
+| POST | `/recommendations/collaborative` | Yes | Collaborative filtering recommendations |
+| GET | `/recommendations/history` | Yes | Previously recommended songs |
+| DELETE | `/recommendations/history` | Yes | Clear recommendation history |
 | POST | `/recommendations/compare` | No | Compare two fingerprints |
-| GET | `/me/analyses` | Required | List saved analyses |
+| GET | `/me/analyses` | Yes | List saved analyses |
 | GET | `/analyses/{id}` | Optional | Get analysis details (public if shared) |
-| POST | `/analyses/{id}/share` | Required | Generate share link |
+| GET | `/analyses/{id}/fingerprints` | Optional | Get fingerprint data for an analysis |
+| POST | `/analyses/{id}/share` | Yes | Generate share link |
 | GET | `/share/{slug}` | No | View shared analysis |
 
 ## Architecture
 
 ```
 app/
-├── main.py              # FastAPI app + middleware
+├── main.py              # FastAPI app + middleware + rate limiting
 ├── config.py            # Settings from env vars
+├── rate_limit.py        # slowapi rate limiter instance
 ├── models/
 │   └── schemas.py       # Pydantic request/response models
 ├── routers/
-│   ├── auth.py          # Signup/login
+│   ├── auth.py          # Signup/login + Spotify OAuth
 │   ├── spotify_router.py # Spotify search
 │   ├── creator.py       # Creator mode analysis
-│   ├── clusters.py      # Listener cluster analysis
+│   ├── clusters.py      # Listener cluster analysis + SSE streaming
 │   ├── analyses.py      # Saved analyses CRUD + sharing
-│   └── recommend.py     # Recommendations (similar, collaborative, history)
+│   ├── recommend.py     # Recommendations (similar, collaborative, history)
+│   └── agent_chat.py    # Sera AI music consultant (ASI:One)
 ├── services/
 │   ├── audio.py         # YouTube download + audio file management
-│   ├── spotify.py       # Spotify API client
+│   ├── spotify.py       # Spotify API client (search, track info, playlist scraping)
 │   ├── supabase_client.py # Supabase client singleton
-│   ├── tribe.py         # TRIBE v2 inference (mock + real)
+│   ├── tribe.py         # TRIBE v2 inference (mock + real via Colab worker)
 │   ├── song_cache.py    # Supabase cache + recommendation queries
 │   └── recommendations.py # Similarity search + cluster analysis
+├── utils/
+│   └── auth.py          # JWT validation helpers
 └── static/              # Rendered brain visualization frames
 ```
 
@@ -89,60 +104,81 @@ so the frontend can develop without a GPU. Set to `false` + configure
 
 ---
 
-## Async Batch Analysis
+## SSE Streaming (`/clusters/analyze/stream`)
 
-Two requests:
+For large playlists, use the streaming endpoint. It processes songs one at a time and sends SSE events as each completes — no timeouts.
 
-1. **`POST /clusters/analyze`** — submit songs, returns `200 OK` with `{batch_id, total_songs}` instantly
-2. **`GET /clusters/batch/{batch_id}/events`** — SSE stream that pings the client as each song finishes
-
-Processing runs in the background. If the SSE client disconnects, processing
-continues and results are still cached to Supabase.
-
-### Usage
-
-```js
-// 1. Submit (returns immediately)
-const { batch_id } = await fetch('/clusters/analyze', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    spotify_playlist_url: 'https://open.spotify.com/playlist/...',
-  }),
-}).then(r => r.json());
-
-// 2. Listen for pings (SSE — events arrive automatically)
-const es = new EventSource(`/clusters/batch/${batch_id}/events`);
-
-es.addEventListener('song_complete', (e) => {
-  const data = JSON.parse(e.data);
-  console.log(`[${data.index}/${data.total}] ${data.song} done`);
-});
-
-es.addEventListener('complete', (e) => {
-  const result = JSON.parse(e.data);
-  console.log('All done!', result);
-  es.close();
-});
+```bash
+curl -N -X POST http://localhost:8000/clusters/analyze/stream \
+  -H "Content-Type: application/json" \
+  -d '{"spotify_playlist_url": "https://open.spotify.com/playlist/..."}'
 ```
 
 ### SSE Events
 
 | Event | Data | When |
 |-------|------|------|
+| `progress` | `{message, total}` | Playlist resolved, total tracks known |
 | `song_complete` | `{song, index, total, cached}` | Song finished and cached to Supabase |
 | `song_error` | `{song, index, total, error}` | Song failed (skipped) |
 | `complete` | Full `ClusterAnalyzeResponse` JSON | All songs done |
 | `error` | `{message}` | Fatal error |
 
-### Key behavior
+### Frontend Usage
 
-- **Submit returns immediately** — processing runs in the background
-- **Client can disconnect and reconnect** — the batch keeps processing regardless
-- **Songs are cached to Supabase as they finish** — even if the client never reconnects, the work is saved
-- **Keepalive comments** are sent every 30s to prevent proxy timeouts on the SSE connection
+```js
+const resp = await fetch('/clusters/analyze/stream', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    spotify_playlist_url: 'https://open.spotify.com/playlist/...',
+  }),
+});
+const reader = resp.body.getReader();
+const decoder = new TextDecoder();
+// Parse SSE events from the stream
+```
 
-### Decoding Brain Data
+### Key Behavior
+
+- **Songs are cached to Supabase as they finish** — even if the client disconnects, completed results are saved
+- **Cached songs resolve instantly** — only new songs require TRIBE inference
+- **Keepalive comments** are sent periodically to prevent proxy timeouts on the SSE connection
+
+---
+
+## Synchronous Endpoint (`/clusters/analyze`)
+
+For small clusters (3-6 songs), the synchronous endpoint waits for all songs to complete before returning the full response. Not recommended for large playlists — use the streaming endpoint instead.
+
+```bash
+curl -X POST http://localhost:8000/clusters/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"spotify_playlist_url": "https://open.spotify.com/playlist/..."}'
+```
+
+---
+
+## Sera Agent Chat (`/agent/chat`)
+
+Chat with the AI music consultant powered by ASI:One. Pass the current song's analysis context for grounded responses.
+
+```bash
+curl -X POST http://localhost:8000/agent/chat \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token>" \
+  -d '{
+    "message": "What brain regions respond most to this track?",
+    "analysis_context": { ... },
+    "history": []
+  }'
+```
+
+Requires `ASI1_API_KEY` in `.env`.
+
+---
+
+## Decoding Brain Data
 
 ```js
 function decodeFingerprintB64(b64String) {
