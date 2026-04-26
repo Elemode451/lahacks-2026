@@ -1,4 +1,8 @@
-"""Agent chat endpoint — Sera AI music consultant powered by ASI:One."""
+"""Sera — AI music consultant chat endpoint for creators.
+
+Provides a conversational interface backed by ASI:One LLM that has access to the
+current song's TRIBE v2 analysis and the catalog of previously analyzed songs.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +13,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.config import settings
+from app.models.schemas import RegionScores
 from app.rate_limit import limiter
+from app.services.song_cache import find_similar_songs
 from app.utils.auth import require_auth
 
 logger = logging.getLogger(__name__)
@@ -23,16 +29,20 @@ but you keep things simple, warm, and practical.
 
 When responding:
 - Skip introducing yourself or explaining what Sera is
-- Be concise and conversational, like a knowledgeable collaborator
+- Be VERY concise and professional, like a knowledgeable source
 - Translate brain-response insights into practical creative terms \
   (e.g. "your track has a strong rhythmic anchor that keeps listeners grounded" \
   rather than "high activation in the motor cortex")
 - When relevant, suggest production directions based on the neural profile
-- Keep responses to 3-5 sentences unless the creator asks for more detail
+- Keep responses to 1-2 sentences unless the creator asks for more detail
+- Can compare the music to what you have
 
 You use the TRIBE v2 cortical-encoding model under the hood, but you never \
 need to explain that unless the creator specifically asks how it works.
 """
+
+
+# ── Request / Response schemas ──────────────────────────────────────────────
 
 
 class ChatRequest(BaseModel):
@@ -51,66 +61,132 @@ class ChatResponse(BaseModel):
     reply: str
 
 
+# ── Context helpers ─────────────────────────────────────────────────────────
+
+
 def _build_context(analysis: dict | None) -> str:
-    """Build an analysis context string for the LLM system prompt."""
+    """Build a context block describing the current song's analysis."""
     if not analysis:
         return ""
 
-    parts = ["\n\nCurrent analysis context:"]
+    parts: list[str] = ["\n\n## Current Song Analysis"]
 
     song = analysis.get("song")
     if song:
-        parts.append(f"- Song: {song.get('title', 'Unknown')} by {song.get('artist', 'Unknown')}")
+        parts.append(f"Track: {song.get('title', 'Unknown')} by {song.get('artist', 'Unknown')}")
 
     scores = analysis.get("region_scores") or analysis.get("combined_region_scores")
     if scores and isinstance(scores, dict):
-        ranked = sorted(
-            ((k, v) for k, v in scores.items() if k != "whole_cortex"),
-            key=lambda x: x[1],
-            reverse=True,
-        )
-        region_str = ", ".join(f"{k}: {v:.4f}" for k, v in ranked)
-        parts.append(f"- Region scores: {region_str}")
+        parts.append("\nRegion Scores (predicted cortical activation 0-1):")
+        for region, score in sorted(scores.items(), key=lambda x: x[1], reverse=True):
+            if isinstance(score, (int, float)):
+                bar = "#" * int(score * 20)
+                parts.append(f"  {region.replace('_', ' '):<25} {score:.4f}  {bar}")
+
+        top = [(r, v) for r, v in sorted(scores.items(), key=lambda x: x[1], reverse=True) if r != "whole_cortex"][:3]
+        if top:
+            names = ", ".join(r.replace("_", " ") for r, _ in top)
+            parts.append(f"\nStrongest predicted activation: {names}")
 
     vibe = analysis.get("vibe_description") or analysis.get("summary")
     if vibe:
-        parts.append(f"- Overview: {vibe}")
+        parts.append(f"\nOverview: {vibe}")
 
     peak = analysis.get("peak_segment")
     if peak is not None:
-        parts.append(f"- Peak activation segment: {peak}/29")
+        parts.append(f"Peak activation segment: {peak}/29")
 
     return "\n".join(parts)
 
 
-def _load_catalog_context() -> str:
-    """Load song catalog from Supabase for additional LLM context."""
-    try:
-        from app.services.supabase_client import get_supabase
+def _extract_region_scores(analysis: dict | None) -> dict[str, float] | None:
+    """Extract region scores dict from analysis context."""
+    if not analysis:
+        return None
+    scores = analysis.get("region_scores") or analysis.get("combined_region_scores")
+    if scores and isinstance(scores, dict):
+        return {k: float(v) for k, v in scores.items() if isinstance(v, (int, float))}
+    return None
 
-        client_db = get_supabase()
-        resp = (
-            client_db.table("song_cache")
-            .select("title,artist,region_scores")
-            .limit(15)
-            .execute()
-        )
-        rows = resp.data or []
-        if not rows:
+
+def _load_catalog_context(region_scores: dict[str, float] | None) -> str:
+    """Load catalog songs ranked by similarity for LLM context."""
+    if not region_scores:
+        return ""
+
+    try:
+        target = RegionScores(**region_scores)
+        results, total = find_similar_songs(target, n=10)
+
+        if not results:
             return ""
 
-        lines = []
-        for row in rows:
-            title = row.get("title", "Unknown")
-            artist = row.get("artist", "Unknown")
-            region_scores = row.get("region_scores") or {}
-            top_region = max(region_scores, key=region_scores.get) if region_scores else "unknown"
-            lines.append(f"- {title} by {artist} (top region: {top_region})")
+        parts: list[str] = [
+            f"\n\n## Song Catalog ({total} songs in database)",
+            "Songs ranked by region-score similarity to the current track:\n",
+        ]
 
-        return "\n\nSongs in the database:\n" + "\n".join(lines)
+        for i, song in enumerate(results, 1):
+            title = song.get("title", "Unknown")
+            artist = song.get("artist", "Unknown")
+            sim = song.get("similarity", 0.0)
+            rs = song.get("region_scores", {})
+
+            parts.append(f"{i}. {title} by {artist} (similarity: {sim:.4f})")
+            for region, val in sorted(rs.items(), key=lambda x: x[1], reverse=True):
+                if isinstance(val, (int, float)):
+                    parts.append(f"     {region.replace('_', ' '):<25} {val:.4f}")
+
+        return "\n".join(parts)
     except Exception as exc:
-        logger.warning("Could not load catalog: %s", exc)
+        logger.warning("Could not load catalog context: %s", exc)
         return ""
+
+
+def _build_comparison_section(region_scores: dict[str, float] | None) -> str:
+    """Compare the current song against the top 3 most similar songs."""
+    if not region_scores:
+        return ""
+
+    try:
+        target = RegionScores(**region_scores)
+        top3, _ = find_similar_songs(target, n=3)
+
+        if not top3:
+            return ""
+
+        region_keys = [
+            "auditory", "superior_temporal", "temporo_parietal",
+            "inferior_frontal", "multisensory", "whole_cortex",
+        ]
+
+        parts: list[str] = ["\n\n## How Your Track Compares (top 3 closest songs)"]
+
+        for rank, song in enumerate(top3, 1):
+            title = song.get("title", "Unknown")
+            artist = song.get("artist", "Unknown")
+            sim = song.get("similarity", 0.0)
+            rs = song.get("region_scores", {})
+
+            parts.append(f"\n### {rank}. {title} by {artist} — similarity {sim:.4f}")
+            parts.append(f"  {'Region':<25} {'Yours':>8} {'Theirs':>8} {'Diff':>8}")
+            parts.append(f"  {'-' * 25} {'-' * 8} {'-' * 8} {'-' * 8}")
+            for rk in region_keys:
+                yours = region_scores.get(rk, 0.0)
+                theirs = float(rs.get(rk, 0.0))
+                diff = yours - theirs
+                sign = "+" if diff >= 0 else ""
+                parts.append(
+                    f"  {rk.replace('_', ' '):<25} {yours:>8.4f} {theirs:>8.4f} {sign}{diff:>7.4f}"
+                )
+
+        return "\n".join(parts)
+    except Exception as exc:
+        logger.warning("Could not build comparison: %s", exc)
+        return ""
+
+
+# ── Chat endpoint ───────────────────────────────────────────────────────────
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -128,8 +204,12 @@ async def agent_chat(
         import httpx
 
         analysis_ctx = _build_context(req.analysis_context)
-        catalog_ctx = await asyncio.to_thread(_load_catalog_context)
-        system_content = SYSTEM_PROMPT + analysis_ctx + catalog_ctx
+        region_scores = _extract_region_scores(req.analysis_context)
+
+        catalog_ctx = await asyncio.to_thread(_load_catalog_context, region_scores)
+        comparison_ctx = await asyncio.to_thread(_build_comparison_section, region_scores)
+
+        system_content = SYSTEM_PROMPT + analysis_ctx + catalog_ctx + comparison_ctx
 
         messages = [{"role": "system", "content": system_content}]
         for turn in req.history[-10:]:
@@ -163,4 +243,4 @@ async def agent_chat(
         raise HTTPException(502, f"ASI1 API returned {exc.response.status_code}")
     except Exception:
         logger.exception("Agent chat error")
-        raise HTTPException(500, "Agent chat failed — please try again")
+        raise HTTPException(500, "Agent chat is temporarily unavailable")
