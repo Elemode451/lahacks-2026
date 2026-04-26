@@ -75,9 +75,9 @@ export default function KeyInfoDisplay({
 
       {/* Key badges */}
       <div className="flex flex-wrap gap-1.5">
-        {keyInfos.map(({ title, info }) => (
+        {keyInfos.map(({ title, info }, idx) => (
           <div
-            key={title}
+            key={`${title}-${idx}`}
             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[rgba(13,59,102,0.06)] border border-[rgba(13,59,102,0.08)]"
           >
             <span className="text-[#0d3b66] text-[10px] font-semibold">
