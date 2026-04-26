@@ -316,7 +316,8 @@ export default function Home() {
                                   ? "Paste Spotify track/playlist link..."
                                   : "Paste YouTube video URL..."
                               }
-                              className="w-full bg-[rgba(249,87,56,0.06)] border border-[rgba(249,87,56,0.2)] focus:border-[#f95738] rounded-full py-[clamp(16px,2.4vh,26px)] px-[clamp(28px,3vw,40px)] pr-[clamp(56px,5.5vw,72px)] text-[#f95738] placeholder-[rgba(249,87,56,0.35)] outline-none text-[clamp(12px,1vw,14px)] transition-colors"
+                              className="w-full bg-[rgba(249,87,56,0.06)] border border-[rgba(249,87,56,0.2)] focus:border-[#f95738] rounded-full text-[#f95738] placeholder-[rgba(249,87,56,0.35)] outline-none text-sm transition-colors"
+                              style={{ padding: "20px 64px 20px 32px" }}
                             />
                             <button
                               type="submit"
