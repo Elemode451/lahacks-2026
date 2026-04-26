@@ -133,7 +133,7 @@ export default function Home() {
 
       {/* 3D Brain — slides left on analysis */}
       <motion.div
-        className={`absolute pointer-events-none z-10 ${brainFlashing ? "brain-flash" : ""}`}
+        className={`absolute ${viewState !== "analysis" ? "pointer-events-none" : ""} z-10 ${brainFlashing ? "brain-flash" : ""}`}
         style={{ width: layout.brainW, height: layout.brainH, top: layout.brainTop }}
         initial={false}
         animate={{
