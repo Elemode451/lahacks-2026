@@ -139,6 +139,13 @@ async def analyze_creator_track(
                 exclude_keys={lookup_key},
                 n=10,
             )
+            # For matching_regions, compare by rank: find top regions for both
+            # the target and each match, then intersect
+            target_scores_dict = song_fp.region_scores.model_dump()
+            _REGIONS = ["auditory", "superior_temporal", "temporo_parietal",
+                        "inferior_frontal", "multisensory", "whole_cortex"]
+            target_top = sorted(_REGIONS, key=lambda r: target_scores_dict.get(r, 0.0), reverse=True)[:3]
+
             top_matches = [
                 SongMatch(
                     song=SongInfo(
@@ -148,11 +155,12 @@ async def analyze_creator_track(
                     ),
                     similarity_score=r["similarity"],
                     matching_regions=[
-                        region for region in r.get("region_scores", {})
-                        if abs(
-                            getattr(song_fp.region_scores, region, 0.0)
-                            - float(r["region_scores"].get(region, 0.0))
-                        ) < 0.01
+                        region for region in sorted(
+                            _REGIONS,
+                            key=lambda reg: float(r.get("region_scores", {}).get(reg, 0.0)),
+                            reverse=True,
+                        )[:3]
+                        if region in target_top
                     ],
                     source="brain_similarity",
                 )
@@ -199,7 +207,7 @@ async def analyze_creator_track(
                 None, record_user_interaction, user_id, lookup_key, "uploaded",
             )
 
-        # Persist analysis to Supabase (non-blocking)
+        # Persist analysis to Supabase (awaited so Share button works immediately)
         creator_payload = {
             "song": song.model_dump(),
             "fingerprint_id": song_fp.fingerprint_id,
@@ -207,10 +215,11 @@ async def analyze_creator_track(
             "timeline_region_scores": song_fp.timeline_region_scores,
             "peak_segment": peak_seg,
             "summary": summary,
+            "song_cache_keys": [lookup_key],
+            "vibe_description": vibe,
             "emotional_profile": emotional_profile,
         }
-        asyncio.get_running_loop().run_in_executor(
-            None,
+        await asyncio.to_thread(
             save_analysis,
             analysis_id,
             "creator",
