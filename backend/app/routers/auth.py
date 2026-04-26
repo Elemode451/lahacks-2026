@@ -49,11 +49,16 @@ async def signup(request: Request, req: SignUpRequest):
         if user is None:
             raise HTTPException(400, "Signup failed")
 
-        # Store display name in profiles table (admin client bypasses RLS)
+        # Store display name in profiles table (admin client bypasses RLS).
+        # The DB trigger on_auth_user_created also creates a profile row,
+        # so this upsert may race or fail on FK timing — treat as non-fatal.
         if req.display_name:
-            get_supabase_admin().table("profiles").upsert(
-                {"user_id": user.id, "display_name": req.display_name}
-            ).execute()
+            try:
+                get_supabase_admin().table("profiles").upsert(
+                    {"user_id": user.id, "display_name": req.display_name}
+                ).execute()
+            except Exception:
+                logger.warning("Profile upsert failed for %s (trigger may handle it)", user.id)
 
         return AuthResponse(
             access_token=result.session.access_token if result.session else "",
