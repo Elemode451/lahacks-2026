@@ -3,7 +3,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import dynamic from "next/dynamic";
-import { X, Send, LogOut, Clock, Music, Brain, MessageCircle, Radio } from "lucide-react";
+import { X, Send, LogOut, Clock, Music, Brain, MessageCircle, Radio, Share2, Check, Users } from "lucide-react";
 import {
   SeratoneLogo,
   SoundBarsIcon,
@@ -12,8 +12,8 @@ import {
   YouTubeIcon,
   UploadIcon,
 } from "@/components/Icons";
-import ColorBends, { type ColorBendsHandle } from "@/components/ColorBends";
 import { useAuth } from "@/lib/auth-context";
+import { useAppBackground } from "./providers";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import type { RecommendedSong } from "@/components/SongRecommendations";
@@ -36,7 +36,9 @@ const SongRecommendations = dynamic(() => import("@/components/SongRecommendatio
 const KeyInfoDisplay = dynamic(() => import("@/components/KeyInfo"), {
   ssr: false,
 });
-
+const FriendsActivity = dynamic(() => import("@/components/FriendsActivity"), {
+  ssr: false,
+});
 type ViewState = "intro" | "importing" | "analyzing" | "processing" | "analysis";
 type ImportType = "file" | "spotify" | "youtube";
 
@@ -48,13 +50,14 @@ export default function Home() {
   const router = useRouter();
 
   const [viewState, setViewState] = useState<ViewState>("intro");
+  const [showFriends, setShowFriends] = useState(false);
   const [importType, setImportType] = useState<ImportType>("file");
   const [songs, setSongs] = useState<string[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [brainFlashing, setBrainFlashing] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+  const { setColorMode } = useAppBackground();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const colorBendsRef = useRef<ColorBendsHandle>(null);
   const analyzeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const [vw, setVw] = useState(1280);
@@ -85,11 +88,19 @@ export default function Home() {
   const [recsLoading, setRecsLoading] = useState(false);
   const seenSongIdsRef = useRef<Set<string>>(new Set());
 
+  // Share state
+  const [shareStatus, setShareStatus] = useState<"idle" | "sharing" | "copied">("idle");
+
   useEffect(() => {
     if (!loading && !user) {
       router.replace("/login");
     }
   }, [user, loading, router]);
+
+  // Transition global ColorBends from orange (login) to blue (app)
+  useEffect(() => {
+    setColorMode("blue");
+  }, [setColorMode]);
 
   // Fetch saved creator analyses on mount
   useEffect(() => {
@@ -196,6 +207,12 @@ export default function Home() {
 
   const peakSegment = (analysisResult?.peak_segment as number | undefined) ?? undefined;
 
+  // Detect creator mode: creator analyses have a `song` object, not a `songs` array
+  const isCreatorMode = useMemo(() => {
+    if (!analysisResult) return false;
+    return !!(analysisResult as Record<string, unknown>).song && !Array.isArray((analysisResult as Record<string, unknown>).songs);
+  }, [analysisResult]);
+
   const topMatches = useMemo(() => {
     if (!analysisResult) return undefined;
     const matches = analysisResult.top_matches as Array<{
@@ -207,6 +224,7 @@ export default function Home() {
     return matches.map((m) => ({
       title: m.song.title,
       artist: m.song.artist,
+      similarity: m.similarity_score,
       tag: m.matching_regions?.[0]?.replace(/_/g, " ") ?? `${Math.round(m.similarity_score * 100)}% match`,
     }));
   }, [analysisResult]);
@@ -229,6 +247,14 @@ export default function Home() {
       panelH: Math.min(contentH * 0.88, 650),
       panelX: (vw - Math.min(vw * 0.72, 920)) / 2,
       panelY: TOPBAR_H + (contentH - Math.min(contentH * 0.88, 650)) / 2,
+      friendsPillW: 140,
+      friendsPillH: 50,
+      friendsPillX: vw * 0.5 - 70,
+      friendsPillY: TOPBAR_H - 25,
+      friendsPanelW: Math.min(vw * 0.42, 480),
+      friendsPanelH: Math.min(contentH * 0.78, 550),
+      friendsPanelX: 32,
+      friendsPanelY: TOPBAR_H + (contentH - Math.min(contentH * 0.78, 550)) / 2,
       rightPanelW: halfW,
     };
   }, [vw, vh]);
@@ -283,6 +309,7 @@ export default function Home() {
     setRecommendations([]);
     setRecsLoading(false);
     seenSongIdsRef.current.clear();
+    setShareStatus("idle");
   };
 
   // Fetch recommendations for a given song identifier
@@ -403,6 +430,88 @@ export default function Home() {
     }
   }, [analysisResult, fetchRecommendations]);
 
+  // Fetch collaborative-only recommendations (triggered periodically by SongRecommendations)
+  const handleRequestCollaborative = useCallback(async () => {
+    const token = session?.access_token ?? null;
+    if (!token) return;
+
+    try {
+      const collabRes = await apiFetch(
+        "/recommendations/collaborative",
+        { method: "POST", body: JSON.stringify({ n: 5 }) },
+        token,
+      );
+      if (collabRes.ok) {
+        const data = await collabRes.json();
+        const collabSongs: RecommendedSong[] = (data.recommendations ?? []).map(
+          (r: { song: { song_id: string; title: string; artist: string }; similarity_score: number; source: string }) => ({
+            song_id: r.song.song_id,
+            title: r.song.title,
+            artist: r.song.artist,
+            similarity_score: r.similarity_score,
+            source: r.source ?? "collaborative",
+          }),
+        );
+
+        const seen = seenSongIdsRef.current;
+        setRecommendations((prev) => {
+          const existingIds = new Set(prev.map((s) => s.song_id));
+          const newSongs = collabSongs.filter(
+            (s) => !existingIds.has(s.song_id) && !seen.has(s.song_id),
+          );
+          for (const s of newSongs) seen.add(s.song_id);
+          return [...prev, ...newSongs];
+        });
+      }
+    } catch (err) {
+      console.error("Failed to fetch collaborative recs:", err);
+    }
+  }, [session]);
+
+  // Share analysis handler
+  const handleShareAnalysis = useCallback(async () => {
+    const analysisId = (analysisResult as Record<string, unknown> | null)?.analysis_id as string | undefined;
+    if (!analysisId || !session?.access_token) return;
+
+    setShareStatus("sharing");
+    try {
+      const res = await apiFetch(
+        `/analyses/${analysisId}/share`,
+        { method: "POST" },
+        session.access_token,
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const url = `${window.location.origin}${data.share_url}`;
+        await navigator.clipboard.writeText(url);
+        setShareStatus("copied");
+        setTimeout(() => setShareStatus("idle"), 2500);
+      } else {
+        setShareStatus("idle");
+      }
+    } catch {
+      setShareStatus("idle");
+    }
+  }, [analysisResult, session]);
+
+  // Handle clicking a friend's song in the feed
+  const handleFriendSongClick = useCallback(
+    (songKey: string, _title: string, _artist: string) => {
+      const isSpotify = songKey.startsWith("spotify:");
+      if (isSpotify) {
+        const spotifyId = songKey.replace("spotify:", "");
+        const url = `https://open.spotify.com/track/${spotifyId}`;
+        setSongs([url]);
+        setImportType("spotify");
+      } else {
+        setSongs([songKey]);
+        setImportType("youtube");
+      }
+      setViewState("importing");
+    },
+    [],
+  );
+
   // ── Real API: Creator Mode (file upload) ──
   const handleCreatorAnalyze = useCallback(async () => {
     if (uploadedFiles.length === 0) return;
@@ -437,6 +546,26 @@ export default function Home() {
       setProcessingProgress(1);
       setBrainFlashing(false);
       setViewState("analysis");
+
+      // Populate recommendations directly from top_matches in the response
+      // (creator mode uses upload:{hash} cache keys which don't match song_id,
+      //  so we can't call fetchRecommendations — use the already-computed matches)
+      const topMatches = result.top_matches as Array<{
+        song: { song_id: string; title: string; artist: string };
+        similarity_score: number;
+        source?: string;
+      }> | undefined;
+      if (topMatches?.length) {
+        setRecommendations(
+          topMatches.map((m) => ({
+            song_id: m.song.song_id,
+            title: m.song.title,
+            artist: m.song.artist,
+            similarity_score: m.similarity_score,
+            source: m.source ?? "brain_similarity",
+          })),
+        );
+      }
     } catch (err) {
       setProcessingStatus(`Failed: ${err instanceof Error ? err.message : "Unknown error"}`);
       setBrainFlashing(false);
@@ -580,49 +709,62 @@ export default function Home() {
 
   useEffect(() => () => cancelAnalyzeTimeout(), []);
 
-  // Build overview text from analysis result
-  const overviewText = analysisResult
-    ? (analysisResult as Record<string, unknown>).summary as string ??
-      (analysisResult as Record<string, unknown>).vibe_description as string ??
-      "This music fits a limbic-dominant profile with strong auditory cortex engagement. High introspective alignment suggests deep default-mode network resonance characteristic of emotional processing music."
-    : "This music fits a limbic-dominant profile with strong auditory cortex engagement. High introspective alignment suggests deep default-mode network resonance characteristic of emotional processing music.";
+  // Build concise overview for Sera's initial message (1-2 sentences max)
+  const overviewText = useMemo(() => {
+    const fallback = "Strong auditory cortex engagement with deep emotional resonance.";
+    if (!analysisResult) return fallback;
+
+    const regionLabels: Record<string, string> = {
+      auditory: "auditory cortex",
+      superior_temporal: "superior temporal gyrus",
+      temporo_parietal: "temporo-parietal junction",
+      inferior_frontal: "inferior frontal cortex",
+      multisensory: "multisensory integration areas",
+    };
+
+    const scores = (analysisResult.combined_region_scores ?? analysisResult.region_scores) as
+      | Record<string, number>
+      | undefined;
+    let regionSentence = "";
+    if (scores) {
+      const ranked = Object.entries(scores)
+        .filter(([k, v]) => k !== "whole_cortex" && typeof v === "number")
+        .sort(([, a], [, b]) => b - a);
+      const topRegions = ranked.slice(0, 2).map(([k]) => regionLabels[k] ?? k.replace(/_/g, " "));
+      if (topRegions.length > 0) {
+        regionSentence = `Strongest activation in ${topRegions.join(" and ")}.`;
+      }
+    }
+
+    const emotionalProfile = analysisResult.emotional_profile as
+      | { dominant_emotions?: string[] }
+      | undefined;
+    let emotionSentence = "";
+    if (emotionalProfile?.dominant_emotions?.length) {
+      const top2 = emotionalProfile.dominant_emotions.slice(0, 2).map((e) => e.toLowerCase());
+      emotionSentence = `Evoking ${top2.join(" and ")}.`;
+    }
+
+    const parts = [regionSentence, emotionSentence].filter(Boolean);
+    return parts.length > 0 ? parts.join(" ") : fallback;
+  }, [analysisResult]);
 
   if (loading || !user) {
-    return (
-      <div className="h-full flex items-center justify-center bg-[#fffdf5]">
-        <div className="w-6 h-6 border-2 border-[#f95738] border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+    return <div className="h-full" />;
   }
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-[#fffdf5] font-sans selection:bg-[#f95738] selection:text-white">
-      {/* Color Bends Background — starts from top so topbar slide reveals it */}
-      <div className="absolute inset-0 pointer-events-none" style={{ top: 0, opacity: 0.75 }}>
-        <ColorBends
-          ref={colorBendsRef}
-          colors={["#0D3B66"]}
-          speed={0.2}
-          frequency={1}
-          warpStrength={1}
-          scale={1}
-          intensity={1.5}
-          noise={0.15}
-          iterations={1}
-          bandWidth={1}
-          transparent={true}
-          mouseInfluence={0}
-          parallax={0}
-        />
-      </div>
-
-      {/* Topbar Background — slides up on analysis */}
+    <div className="relative w-screen h-screen overflow-hidden font-sans selection:bg-[#f95738] selection:text-white">
+      {/* Topbar Background — fades in on mount, slides up on analysis */}
       <motion.div
         className="absolute bg-[#fffdf5] left-0 top-0 w-full z-0"
         style={{ height: TOPBAR_H }}
-        initial={false}
-        animate={{ y: viewState === "analysis" ? -TOPBAR_H : 0 }}
-        transition={{ duration: 0.8, ease: panelEase }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1, y: viewState === "analysis" ? -TOPBAR_H : 0 }}
+        transition={{
+          opacity: { duration: 0.5, ease: "easeOut", delay: 0.1 },
+          y: { duration: 0.8, ease: panelEase },
+        }}
       />
 
       {/* 3D Brain — slides left on analysis */}
@@ -635,7 +777,7 @@ export default function Home() {
           x: viewState === "analysis" ? layout.brainAnalysisX : layout.brainIntroX,
         }}
         transition={{
-          opacity: { duration: 0.6, ease: "linear", delay: 0.4 },
+          opacity: { duration: 0.6, ease: "easeOut", delay: 0.1 },
           x: { duration: 0.8, ease: panelEase },
         }}
       >
@@ -655,7 +797,7 @@ export default function Home() {
         style={{ left: 0, width: "50vw", top: TOPBAR_H - 41 }}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ duration: 0.6, ease: "linear", delay: 0.5 }}
+        transition={{ duration: 0.5, ease: "easeOut", delay: 0.1 }}
         onClick={resetState}
       >
         <SeratoneLogo className="h-[41px] w-auto" />
@@ -695,37 +837,49 @@ export default function Home() {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.6, delay: 0.4 }}
             >
-              {/* Timeline Section */}
+              {/* Cortical Profile + Share */}
               <motion.div
                 className="glass-card px-6 py-5 shrink-0"
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5, delay: 0.5, ease: panelEase }}
               >
-                <div className="flex items-center gap-2 mb-3">
-                  <Radio className="w-3.5 h-3.5 text-[#0d3b66]/40" />
-                  <h3 className="section-header">Timeline</h3>
-                </div>
-                <AudioTimeline
-                  duration={214}
-                  segmentActivations={timelineActivations}
-                  peakIndex={peakSegment}
-                  currentIndex={currentSegment}
-                  onSegmentChange={setCurrentSegment}
-                  className="max-w-[320px] mx-auto w-full"
-                />
-              </motion.div>
-
-              {/* Radar Chart Section */}
-              <motion.div
-                className="glass-card px-6 py-5 shrink-0"
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.6, ease: panelEase }}
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  <Brain className="w-3.5 h-3.5 text-[#0d3b66]/40" />
-                  <h3 className="section-header">Cortical Profile</h3>
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2">
+                    <Brain className="w-3.5 h-3.5 text-[#0d3b66]/40" />
+                    <h3 className="section-header">Cortical Profile</h3>
+                  </div>
+                  <motion.button
+                    onClick={handleShareAnalysis}
+                    disabled={shareStatus === "sharing" || !session?.access_token}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-[11px] font-semibold transition-all duration-200 border disabled:opacity-30"
+                    style={{
+                      color: shareStatus === "copied" ? "#fff" : "rgba(249,87,56,0.85)",
+                      backgroundColor: shareStatus === "copied" ? "rgba(34,197,94,0.85)" : "rgba(249,87,56,0.08)",
+                      borderColor: shareStatus === "copied" ? "rgba(34,197,94,0.9)" : "rgba(249,87,56,0.2)",
+                    }}
+                    whileHover={{ scale: 1.04 }}
+                    whileTap={{ scale: 0.96 }}
+                  >
+                    <AnimatePresence mode="wait">
+                      {shareStatus === "copied" ? (
+                        <motion.span key="copied" className="flex items-center gap-1.5" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}>
+                          <Check className="w-3.5 h-3.5" />
+                          Link Copied!
+                        </motion.span>
+                      ) : shareStatus === "sharing" ? (
+                        <motion.span key="sharing" className="flex items-center gap-1.5" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                          <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                          Sharing...
+                        </motion.span>
+                      ) : (
+                        <motion.span key="idle" className="flex items-center gap-1.5" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}>
+                          <Share2 className="w-3.5 h-3.5" />
+                          Share
+                        </motion.span>
+                      )}
+                    </AnimatePresence>
+                  </motion.button>
                 </div>
                 <div className="flex justify-center">
                   <MusicRadarChart data={radarData} className="w-full max-w-[340px]" style={{ height: "min(220px, 26vh)" }} />
@@ -735,7 +889,7 @@ export default function Home() {
               {/* Key Info */}
               <KeyInfoDisplay
                 analysisResult={analysisResult}
-                className="mt-3 px-1"
+                className="px-1"
               />
 
               {/* Chat + Song Recommendations */}
@@ -743,7 +897,7 @@ export default function Home() {
                 className="flex-1 min-h-0 flex gap-4"
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.7, ease: panelEase }}
+                transition={{ duration: 0.5, delay: 0.6, ease: panelEase }}
               >
                 {/* Chat Section */}
                 <div className="glass-card px-5 py-4 flex-1 min-w-0 flex flex-col">
@@ -759,20 +913,97 @@ export default function Home() {
                   />
                 </div>
 
-                {/* Recommendations Section */}
+                {/* Right panel: Creator → Sounds Similar To / Listener → Discover */}
                 <div className="glass-card px-5 py-4 w-[40%] shrink-0 flex flex-col">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Music className="w-3.5 h-3.5 text-[#0d3b66]/40" />
-                    <h3 className="section-header">Discover</h3>
-                  </div>
-                  <SongRecommendations
-                    className="flex-1 min-h-0"
-                    recommendations={recommendations}
-                    loading={recsLoading}
-                    onSongClick={handleRecommendedSongClick}
-                    onRefresh={handleRefreshRecommendations}
-                  />
+                  {isCreatorMode ? (
+                    <>
+                      <div className="flex items-center gap-2 mb-3">
+                        <Music className="w-3.5 h-3.5 text-[#0d3b66]/40" />
+                        <h3 className="section-header">Sounds Similar To</h3>
+                      </div>
+                      <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-2">
+                        {topMatches && topMatches.length > 0 ? (
+                          <AnimatePresence initial={false}>
+                            {topMatches.map((match, i) => (
+                              <motion.div
+                                key={`${match.title}-${i}`}
+                                initial={{ opacity: 0, y: 8 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: i * 0.06, duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+                                className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-[rgba(13,59,102,0.02)] border border-[rgba(13,59,102,0.05)] hover:bg-[rgba(13,59,102,0.05)] hover:border-[rgba(13,59,102,0.1)] transition-all duration-200"
+                              >
+                                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[rgba(249,87,56,0.08)] to-[rgba(238,150,75,0.12)] flex items-center justify-center shrink-0">
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#f95738]/50">
+                                    <path d="M9 18V5l12-2v13" />
+                                    <circle cx="6" cy="18" r="3" />
+                                    <circle cx="18" cy="16" r="3" />
+                                  </svg>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[#0d3b66] text-[11px] font-medium truncate leading-tight">{match.title}</p>
+                                  <p className="text-[#0d3b66]/40 text-[10px] truncate leading-tight mt-0.5">{match.artist}</p>
+                                </div>
+                                <div className="flex flex-col items-end shrink-0 gap-0.5">
+                                  <span className="text-[#f95738]/60 text-[10px] font-semibold tabular-nums">
+                                    {Math.round(match.similarity * 100)}%
+                                  </span>
+                                  <span className="text-[#0d3b66]/25 text-[8px] uppercase tracking-wider">
+                                    {match.tag}
+                                  </span>
+                                </div>
+                              </motion.div>
+                            ))}
+                          </AnimatePresence>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center py-8">
+                            <div className="w-10 h-10 rounded-xl bg-[rgba(13,59,102,0.04)] flex items-center justify-center mb-2">
+                              <Music className="w-4 h-4 text-[#0d3b66]/20" />
+                            </div>
+                            <p className="text-[#0d3b66]/25 text-[10px] text-center">
+                              No similar songs found in the catalog yet
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2 mb-3">
+                        <Music className="w-3.5 h-3.5 text-[#0d3b66]/40" />
+                        <h3 className="section-header">Discover</h3>
+                      </div>
+                      <SongRecommendations
+                        className="flex-1 min-h-0"
+                        recommendations={recommendations}
+                        loading={recsLoading}
+                        onSongClick={handleRecommendedSongClick}
+                        onRefresh={handleRefreshRecommendations}
+                        onRequestCollaborative={handleRequestCollaborative}
+                      />
+                    </>
+                  )}
                 </div>
+              </motion.div>
+
+              {/* Timeline Section */}
+              <motion.div
+                className="glass-card px-6 py-4 shrink-0"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.7, ease: panelEase }}
+              >
+                <div className="flex items-center gap-2 mb-3">
+                  <Radio className="w-3.5 h-3.5 text-[#0d3b66]/40" />
+                  <h3 className="section-header">Timeline</h3>
+                </div>
+                <AudioTimeline
+                  duration={214}
+                  segmentActivations={timelineActivations}
+                  peakIndex={peakSegment}
+                  currentIndex={currentSegment}
+                  onSegmentChange={setCurrentSegment}
+                  className="max-w-[320px] mx-auto w-full"
+                />
               </motion.div>
             </motion.div>
           )}
@@ -872,6 +1103,88 @@ export default function Home() {
         )}
       </AnimatePresence>
 
+      {/* Friends Button / Panel — pill-to-panel like import, on the left */}
+      <AnimatePresence>
+        {(viewState === "intro" || showFriends) && !["processing", "analyzing", "analysis"].includes(viewState) && (
+          <motion.div
+            className="absolute bg-[rgba(13,59,102,0.08)] overflow-hidden z-20 shadow-sm backdrop-blur-[40px] border border-[rgba(13,59,102,0.15)]"
+            initial={false}
+            animate={{
+              width: showFriends ? layout.friendsPanelW : layout.friendsPillW,
+              height: showFriends ? layout.friendsPanelH : layout.friendsPillH,
+              x: showFriends ? layout.friendsPanelX : layout.friendsPillX,
+              y: showFriends ? layout.friendsPanelY : layout.friendsPillY,
+              borderRadius: showFriends ? 50 : 100,
+              opacity: 1,
+              scale: 1,
+            }}
+            exit={{
+              opacity: 0,
+              scale: 0.95,
+              transition: { duration: 0.4 },
+            }}
+            transition={{
+              type: "spring",
+              stiffness: 300,
+              damping: 30,
+              mass: 1.5,
+            }}
+            style={{ transformOrigin: "center" }}
+          >
+            {!showFriends ? (
+              <motion.button
+                className="w-full h-full flex items-center justify-center gap-3 text-[#0d3b66]/60 hover:bg-[rgba(13,59,102,0.08)] transition-colors cursor-pointer"
+                onClick={() => setShowFriends(true)}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0, transition: { duration: 0.1 } }}
+                whileHover={{ scale: 1.04 }}
+                whileTap={{ scale: 0.96 }}
+              >
+                <span className="font-semibold text-xl tracking-[-0.8px]" style={{ fontFamily: "var(--font-display)" }}>friends</span>
+                <Users className="size-5" />
+              </motion.button>
+            ) : (
+              <motion.div
+                className="absolute flex flex-col"
+                style={{ top: "7.4%", left: "8.7%", right: "8.9%", bottom: "7.2%" }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.2, duration: 0.3 }}
+              >
+                <div className="flex justify-between items-start mb-4">
+                  <h2 className="text-[#0d3b66]/70 text-[clamp(18px,2vw,26px)] tracking-[-1px] leading-none" style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}>friends:</h2>
+                  <motion.button
+                    className="text-[#0d3b66]/30 hover:text-[#0d3b66]/60 transition-colors p-1 rounded-lg cursor-pointer"
+                    onClick={() => setShowFriends(false)}
+                    whileTap={{ scale: 0.9 }}
+                  >
+                    <X className="w-4 h-4" />
+                  </motion.button>
+                </div>
+                <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+                  <FriendsActivity
+                    token={session?.access_token ?? null}
+                    onSongClick={(songKey, title, artist) => {
+                      setShowFriends(false);
+                      handleFriendSongClick(songKey, title, artist);
+                    }}
+                  />
+                </div>
+              </motion.div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Click Outside Overlay — dismiss friends panel */}
+      {showFriends && (
+        <div
+          className="absolute inset-0 z-[15]"
+          onClick={() => setShowFriends(false)}
+        />
+      )}
+
       {/* Import Button / Panel — spring expansion */}
       <AnimatePresence>
         {(viewState === "intro" || viewState === "importing") && (
@@ -903,14 +1216,14 @@ export default function Home() {
             {viewState === "intro" ? (
               <motion.button
                 className="w-full h-full flex items-center justify-center gap-3 text-[#f95738] hover:bg-[rgba(249,87,56,0.3)] transition-colors cursor-pointer"
-                onClick={() => setViewState("importing")}
+                onClick={() => { setShowFriends(false); setViewState("importing"); }}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0, transition: { duration: 0.1 } }}
                 whileHover={{ scale: 1.04 }}
                 whileTap={{ scale: 0.96 }}
               >
-                <span className="font-semibold text-xl tracking-[-0.8px]" style={{ fontFamily: "var(--font-display)" }}>import</span>
+                <span className="font-semibold text-xl tracking-[-0.8px]">import</span>
                 <SoundBarsIcon className="size-6" />
               </motion.button>
             ) : (
@@ -923,7 +1236,7 @@ export default function Home() {
               >
                 {/* Header: "import:" left, icon tabs right */}
                 <div className="flex justify-between items-start">
-                  <h2 className="text-[#f95738] text-[clamp(18px,2vw,26px)] tracking-[-1px] leading-none" style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}>import:</h2>
+                  <h2 className="text-[#f95738] text-[clamp(18px,2vw,26px)] tracking-[-1px] leading-none font-semibold">import:</h2>
                   <div className="flex gap-[clamp(8px,1.2vw,14px)] text-[#f95738] items-center">
                     {([["file", FileIcon], ["spotify", SpotifyIcon], ["youtube", YouTubeIcon]] as const).map(([type, Icon]) => (
                       <motion.button

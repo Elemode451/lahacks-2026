@@ -1,37 +1,42 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import dynamic from "next/dynamic";
 import { useAuth } from "@/lib/auth-context";
-import { SeratoneLogo } from "@/components/Icons";
+import { SeratoneLogo, SpotifyIcon } from "@/components/Icons";
 import { apiFetch } from "@/lib/api";
 import { getSupabase } from "@/lib/supabase";
-
-const MagicRings = dynamic(() => import("@/components/MagicRings"), {
-  ssr: false,
-});
-
-const Noise = dynamic(() => import("@/components/Noise"), {
-  ssr: false,
-});
+import { UserRound } from "lucide-react";
+import { useAppBackground } from "../providers";
 
 const TEMP_EMAIL = "dwelicki@uw.edu";
 const TEMP_PASSWORD = "seratone-demo-2026";
 const TEMP_DISPLAY = "Demo User";
 
+const ease = [0.16, 1, 0.3, 1] as const;
+
 export default function LoginPage() {
   const { user, loading, signInWithSpotify } = useAuth();
+  const { setColorMode } = useAppBackground();
   const router = useRouter();
   const [tempLoading, setTempLoading] = useState(false);
   const [tempError, setTempError] = useState("");
+  const redirectStartedRef = useRef(false);
+  const shouldExit = !loading && !!user;
+
+  // Login page always shows orange
+  useEffect(() => {
+    setColorMode("orange");
+  }, [setColorMode]);
 
   useEffect(() => {
-    if (!loading && user) {
-      router.replace("/");
-    }
-  }, [user, loading, router]);
+    if (!shouldExit || redirectStartedRef.current) return;
+    redirectStartedRef.current = true;
+    setColorMode("blue");
+    const timeout = setTimeout(() => router.replace("/"), 700);
+    return () => clearTimeout(timeout);
+  }, [shouldExit, router, setColorMode]);
 
   const handleTempLogin = async () => {
     setTempLoading(true);
@@ -45,7 +50,6 @@ export default function LoginPage() {
           display_name: TEMP_DISPLAY,
         }),
       });
-
       const sb = getSupabase();
       const { error } = await sb.auth.signInWithPassword({
         email: TEMP_EMAIL,
@@ -54,123 +58,100 @@ export default function LoginPage() {
       if (error) throw error;
     } catch (err) {
       setTempError(err instanceof Error ? err.message : "Login failed");
-    } finally {
       setTempLoading(false);
     }
   };
 
-  if (loading) {
-    return (
-      <div className="h-full flex items-center justify-center bg-[#0a0a12]">
-        <div className="w-6 h-6 border-2 border-[#f95738] border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
-
   return (
-    <div className="relative h-full flex flex-col items-center justify-center overflow-hidden">
-      {/* Dark gradient background */}
-      <div className="absolute inset-0 bg-gradient-to-br from-[#0a0a12] via-[#0d1520] to-[#0a0f1a]" />
-
-      {/* Noise overlay */}
-      <div className="absolute inset-0 pointer-events-none opacity-30 mix-blend-soft-light">
-        <Noise
-          patternSize={250}
-          patternScaleX={1}
-          patternScaleY={1}
-          patternRefreshInterval={2}
-          patternAlpha={25}
-        />
-      </div>
-
-      {/* Magic Rings — orange to match logo */}
-      <div className="absolute inset-0 pointer-events-none opacity-60">
-        <MagicRings
-          color="#f95738"
-          colorTwo="#ee964b"
-          speed={0.4}
-          ringCount={5}
-          attenuation={6}
-          lineThickness={2}
-          baseRadius={0.25}
-          radiusStep={0.1}
-          scaleRate={0.15}
-          opacity={1}
-          noiseAmount={0.03}
-          rotation={0.3}
-          ringGap={1.4}
-          fadeIn={0.8}
-          fadeOut={0.6}
-        />
-      </div>
-
+    <div className="h-full flex flex-col items-center justify-center">
+      {/* Login content — fades in once session check completes, fades out on exit */}
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-        className="relative z-10 w-full max-w-md flex flex-col items-center"
+        className="flex flex-col items-center"
+        style={{ width: "min(90vw, 420px)" }}
+        initial={{ opacity: 0, y: 16 }}
+        animate={{
+          opacity: loading || shouldExit ? 0 : 1,
+          y: loading ? 16 : 0,
+        }}
+        transition={{ duration: 0.55, ease, delay: loading ? 0 : 0.05 }}
       >
-        {/* Frosted glass card — wraps entire center section */}
-        <div className="w-full bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl px-8 py-10 flex flex-col items-center">
-          {/* Logo */}
-          <div className="flex items-center gap-4 mb-3">
-            <div className="flex">
-              <div className="bg-[#f4d35e] h-8 w-[4px]" />
-              <div className="bg-[#ee964b] h-8 w-[4px]" />
-              <div className="bg-[#f95738] h-8 w-[4px]" />
-            </div>
-            <SeratoneLogo className="h-[50px] w-auto text-white" />
-          </div>
-          <p className="text-white/40 text-sm tracking-tight mb-10">
-            Music discovery through predicted brain response
-          </p>
-
-          {/* Auth Buttons */}
-          <div className="w-full flex flex-col gap-4">
-            <button
-            onClick={signInWithSpotify}
-            className="w-full flex items-center justify-center gap-3 bg-[#1DB954]/90 hover:bg-[#1DB954] rounded-full py-4 px-6 text-white font-medium text-base transition-all cursor-pointer hover:shadow-lg"
+        {/* Logo + tagline */}
+        <div className="flex flex-col items-center mb-16">
+          <SeratoneLogo className="h-[41px] w-auto mb-8" />
+          <p
+            className="text-[15px] tracking-[-0.5px]"
+            style={{ color: "rgba(13,59,102,0.6)", fontFamily: "var(--font-body)" }}
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
-              <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z" />
-            </svg>
-            Continue with Spotify
-          </button>
+            Brain response backed music discovery
+          </p>
+        </div>
 
-          {/* Divider */}
-          <div className="flex items-center gap-4">
-            <div className="flex-1 h-px bg-white/10" />
-            <span className="text-white/25 text-xs">or</span>
-            <div className="flex-1 h-px bg-white/10" />
-          </div>
+        {/* Buttons */}
+        <div className="w-full flex flex-col gap-[14px]">
+          <motion.button
+            onClick={signInWithSpotify}
+            className="w-full flex items-center justify-between rounded-full cursor-pointer"
+            style={{
+              background: "rgba(29,141,83,0.32)",
+              color: "#1d8d53",
+              fontFamily: "var(--font-body)",
+              paddingTop: 16,
+              paddingBottom: 16,
+              paddingLeft: 40,
+              paddingRight: 40,
+            }}
+            whileHover={{ background: "rgba(29,141,83,0.46)" }}
+            whileTap={{ scale: 0.98 }}
+            transition={{ duration: 0.15 }}
+          >
+            <span className="font-medium text-[15px] tracking-[-0.3px]">
+              continue with spotify
+            </span>
+            <SpotifyIcon className="w-[22px] h-[22px] shrink-0" />
+          </motion.button>
 
-          {/* Temp Login */}
-          <button
+          <motion.button
             onClick={handleTempLogin}
             disabled={tempLoading}
-            className="w-full flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full py-3.5 px-6 text-white/50 font-medium text-sm transition-all cursor-pointer"
+            className="w-full flex items-center justify-between rounded-full cursor-pointer disabled:cursor-default"
+            style={{
+              background: "rgba(70,94,81,0.32)",
+              color: "#465e51",
+              fontFamily: "var(--font-body)",
+              paddingTop: 16,
+              paddingBottom: 16,
+              paddingLeft: 40,
+              paddingRight: 40,
+            }}
+            whileHover={!tempLoading ? { background: "rgba(70,94,81,0.46)" } : {}}
+            whileTap={!tempLoading ? { scale: 0.98 } : {}}
+            transition={{ duration: 0.15 }}
           >
+            <span className="font-medium text-[15px] tracking-[-0.3px]">
+              {tempLoading ? "signing in…" : "continue as demo user"}
+            </span>
             {tempLoading ? (
-              <div className="w-4 h-4 border-2 border-white/30 border-t-transparent rounded-full animate-spin" />
+              <div
+                className="w-[18px] h-[18px] border-2 rounded-full animate-spin shrink-0"
+                style={{
+                  borderColor: "rgba(70,94,81,0.3)",
+                  borderTopColor: "#465e51",
+                }}
+              />
             ) : (
-              <>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                  <circle cx="12" cy="7" r="4" />
-                </svg>
-                Continue as Demo User
-              </>
+              <UserRound className="w-[22px] h-[22px] shrink-0" strokeWidth={1.75} />
             )}
-          </button>
-            {tempError && (
-              <p className="text-red-400 text-xs text-center -mt-2">{tempError}</p>
-            )}
-          </div>
+          </motion.button>
 
-          <p className="mt-8 text-white/20 text-xs text-center">
-            By continuing, you agree to let Seratone analyze your music taste
-            through predicted cortical responses.
-          </p>
+          {tempError && (
+            <motion.p
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="text-[#f95738] text-xs text-center"
+            >
+              {tempError}
+            </motion.p>
+          )}
         </div>
       </motion.div>
     </div>

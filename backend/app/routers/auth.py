@@ -351,7 +351,6 @@ async def _upsert_spotify_user(
         if result.user is None:
             raise HTTPException(500, "Failed to create user account")
         user_id = result.user.id
-        is_new_user = True
     except HTTPException:
         raise
     except Exception as exc:
@@ -365,7 +364,6 @@ async def _upsert_spotify_user(
         if existing is None:
             raise HTTPException(500, "Failed to locate existing user account")
         user_id = existing.id
-        is_new_user = False
         sb.auth.admin.update_user_by_id(
             user_id,
             {
@@ -379,7 +377,7 @@ async def _upsert_spotify_user(
 
     # Store display name in profiles table (outside try so failures don't
     # trigger the "user already exists" fallback)
-    if is_new_user and display_name:
+    if display_name:
         sb.table("profiles").upsert(
             {"user_id": user_id, "display_name": display_name}
         ).execute()
