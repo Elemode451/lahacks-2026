@@ -11,12 +11,11 @@ import logging
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.config import settings
 from app.models.schemas import RegionScores
-from app.rate_limit import limiter
 from app.services.song_cache import find_similar_songs
 from app.utils.auth import require_auth
 
@@ -192,9 +191,7 @@ def _build_comparison_section(region_scores: dict[str, float] | None) -> str:
 
 
 @router.post("/chat", response_model=ChatResponse)
-@limiter.limit("10/minute")
 async def agent_chat(
-    request: Request,
     req: ChatRequest,
     _user_id: str = Depends(require_auth),
 ):

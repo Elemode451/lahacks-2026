@@ -3,6 +3,7 @@
 import logging
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -39,6 +40,12 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
         status_code=429,
         content={"detail": f"Rate limit exceeded: {exc.detail}"},
     )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError):
+    logger.error("Validation error on %s %s: %s", request.method, request.url.path, exc.errors())
+    return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
 
 # CORS — restrict to known origins (added AFTER rate limiter so CORS
