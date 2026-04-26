@@ -13,7 +13,11 @@ const MagicRings = dynamic(() => import("@/components/MagicRings"), {
   ssr: false,
 });
 
-const TEMP_EMAIL = "demo@seratone.dev";
+const Noise = dynamic(() => import("@/components/Noise"), {
+  ssr: false,
+});
+
+const TEMP_EMAIL = "dwelicki@uw.edu";
 const TEMP_PASSWORD = "seratone-demo-2026";
 const TEMP_DISPLAY = "Demo User";
 
@@ -33,7 +37,6 @@ export default function LoginPage() {
     setTempLoading(true);
     setTempError("");
     try {
-      // Try to sign up first (will fail silently if account already exists)
       await apiFetch("/auth/signup", {
         method: "POST",
         body: JSON.stringify({
@@ -43,7 +46,6 @@ export default function LoginPage() {
         }),
       });
 
-      // Now sign in via Supabase client so the session is managed locally
       const sb = getSupabase();
       const { error } = await sb.auth.signInWithPassword({
         email: TEMP_EMAIL,
@@ -59,28 +61,42 @@ export default function LoginPage() {
 
   if (loading) {
     return (
-      <div className="h-full flex items-center justify-center bg-[#fffdf5]">
+      <div className="h-full flex items-center justify-center bg-[#0a0a12]">
         <div className="w-6 h-6 border-2 border-[#f95738] border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="relative h-full flex flex-col items-center justify-center bg-[#fffdf5] px-6 overflow-hidden">
-      {/* Magic Rings Background */}
-      <div className="absolute inset-0 pointer-events-none opacity-25">
+    <div className="relative h-full flex flex-col items-center justify-center overflow-hidden">
+      {/* Dark gradient background */}
+      <div className="absolute inset-0 bg-gradient-to-br from-[#0a0a12] via-[#0d1520] to-[#0a0f1a]" />
+
+      {/* Noise overlay */}
+      <div className="absolute inset-0 pointer-events-none opacity-30 mix-blend-soft-light">
+        <Noise
+          patternSize={250}
+          patternScaleX={1}
+          patternScaleY={1}
+          patternRefreshInterval={2}
+          patternAlpha={25}
+        />
+      </div>
+
+      {/* Magic Rings — more pronounced on dark background */}
+      <div className="absolute inset-0 pointer-events-none opacity-60">
         <MagicRings
           color="#f95738"
           colorTwo="#0d3b66"
           speed={0.4}
           ringCount={5}
-          attenuation={8}
-          lineThickness={1.5}
+          attenuation={6}
+          lineThickness={2}
           baseRadius={0.25}
-          radiusStep={0.08}
+          radiusStep={0.1}
           scaleRate={0.15}
           opacity={1}
-          noiseAmount={0.05}
+          noiseAmount={0.03}
           rotation={0.3}
           ringGap={1.4}
           fadeIn={0.8}
@@ -95,16 +111,16 @@ export default function LoginPage() {
         className="relative z-10 w-full max-w-md flex flex-col items-center"
       >
         {/* Logo */}
-        <div className="flex items-center gap-4 mb-4">
+        <div className="flex items-center gap-4 mb-6">
           <div className="flex">
             <div className="bg-[#f4d35e] h-8 w-[4px]" />
             <div className="bg-[#ee964b] h-8 w-[4px]" />
             <div className="bg-[#f95738] h-8 w-[4px]" />
           </div>
-          <SeratoneLogo className="h-[50px] w-auto" />
+          <SeratoneLogo className="h-[50px] w-auto text-white" />
         </div>
 
-        <p className="text-[#0d3b66]/50 text-sm tracking-tight mb-16">
+        <p className="text-white/40 text-sm tracking-tight mb-20">
           Music discovery through predicted brain response
         </p>
 
@@ -112,7 +128,7 @@ export default function LoginPage() {
         <div className="w-full flex flex-col gap-6">
           <button
             onClick={signInWithGoogle}
-            className="w-full flex items-center justify-center gap-3 bg-white border-2 border-[#0d3b66]/10 hover:border-[#0d3b66]/25 rounded-full py-4 px-6 text-[#0d3b66] font-medium text-base transition-all cursor-pointer hover:shadow-md"
+            className="w-full flex items-center justify-center gap-3 bg-white/10 backdrop-blur-sm border border-white/15 hover:bg-white/15 hover:border-white/25 rounded-full py-4 px-6 text-white font-medium text-base transition-all cursor-pointer hover:shadow-lg"
           >
             <svg width="20" height="20" viewBox="0 0 24 24">
               <path
@@ -137,7 +153,7 @@ export default function LoginPage() {
 
           <button
             onClick={signInWithSpotify}
-            className="w-full flex items-center justify-center gap-3 bg-[#1DB954] hover:bg-[#1aa34a] rounded-full py-4 px-6 text-white font-medium text-base transition-all cursor-pointer hover:shadow-md"
+            className="w-full flex items-center justify-center gap-3 bg-[#1DB954]/90 hover:bg-[#1DB954] rounded-full py-4 px-6 text-white font-medium text-base transition-all cursor-pointer hover:shadow-lg"
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
               <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z" />
@@ -147,19 +163,19 @@ export default function LoginPage() {
 
           {/* Divider */}
           <div className="flex items-center gap-4">
-            <div className="flex-1 h-px bg-[#0d3b66]/10" />
-            <span className="text-[#0d3b66]/30 text-xs">or</span>
-            <div className="flex-1 h-px bg-[#0d3b66]/10" />
+            <div className="flex-1 h-px bg-white/10" />
+            <span className="text-white/25 text-xs">or</span>
+            <div className="flex-1 h-px bg-white/10" />
           </div>
 
           {/* Temp Login */}
           <button
             onClick={handleTempLogin}
             disabled={tempLoading}
-            className="w-full flex items-center justify-center gap-2 bg-[#0d3b66]/5 hover:bg-[#0d3b66]/10 border border-[#0d3b66]/10 rounded-full py-3.5 px-6 text-[#0d3b66]/60 font-medium text-sm transition-all cursor-pointer"
+            className="w-full flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full py-3.5 px-6 text-white/50 font-medium text-sm transition-all cursor-pointer"
           >
             {tempLoading ? (
-              <div className="w-4 h-4 border-2 border-[#0d3b66]/30 border-t-transparent rounded-full animate-spin" />
+              <div className="w-4 h-4 border-2 border-white/30 border-t-transparent rounded-full animate-spin" />
             ) : (
               <>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -171,11 +187,11 @@ export default function LoginPage() {
             )}
           </button>
           {tempError && (
-            <p className="text-red-500 text-xs text-center -mt-2">{tempError}</p>
+            <p className="text-red-400 text-xs text-center -mt-2">{tempError}</p>
           )}
         </div>
 
-        <p className="mt-10 text-[#0d3b66]/30 text-xs text-center">
+        <p className="mt-12 text-white/20 text-xs text-center">
           By continuing, you agree to let Seratone analyze your music taste
           through predicted cortical responses.
         </p>
