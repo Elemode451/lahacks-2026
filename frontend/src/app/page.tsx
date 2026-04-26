@@ -153,6 +153,9 @@ export default function Home() {
     setProcessingProgress(0);
     setProcessingTotal(0);
     setAnalysisResult(null);
+    setSongs([]);
+    setUploadedFiles([]);
+    setInputValue("");
   };
 
   // ── Real API: Creator Mode (file upload) ──
@@ -457,12 +460,28 @@ export default function Home() {
         <AnimatePresence>
           {viewState === "analysis" && (
             <motion.div
-              className="absolute inset-0 px-10 pt-8 pb-8 flex flex-col"
+              className="absolute inset-0 px-10 pt-6 pb-8 flex flex-col"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.6, delay: 0.4 }}
             >
+              {/* Header with back button */}
+              <div className="flex items-center justify-between mb-4 shrink-0">
+                <button
+                  onClick={resetState}
+                  className="text-[#0d3b66]/40 hover:text-[#f95738] text-xs font-medium tracking-tight transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M19 12H5M12 19l-7-7 7-7" />
+                  </svg>
+                  new analysis
+                </button>
+                <span className="text-[#0d3b66]/25 text-[9px] tracking-[0.1em] uppercase font-semibold">
+                  brain response
+                </span>
+              </div>
+
               {/* Top row: Radar + Timeline side by side */}
               <div className="flex gap-6 shrink-0">
                 <MusicRadarChart
