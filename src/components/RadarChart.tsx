@@ -7,17 +7,17 @@ interface RadarChartProps {
   labels?: string[];
 }
 
-const DEFAULT_LABELS = ["Limbic", "Motor", "Auditory", "Prefrontal", "Default Mode"];
-const DEFAULT_DATA = [0.75, 0.45, 0.85, 0.6, 0.55];
+const DEFAULT_LABELS = ["Danceability", "Energy", "Valence", "Acousticness", "Instrumentalness", "Tempo", "Speechiness"];
+const DEFAULT_DATA = [0.78, 0.52, 0.65, 0.42, 0.88, 0.61, 0.34];
 
 export default function RadarChart({
   data = DEFAULT_DATA,
   labels = DEFAULT_LABELS,
 }: RadarChartProps) {
-  const cx = 150;
-  const cy = 140;
-  const maxR = 100;
-  const levels = 4;
+  const cx = 180;
+  const cy = 170;
+  const maxR = 120;
+  const levels = 5;
   const n = labels.length;
 
   const angleStep = (Math.PI * 2) / n;
@@ -49,10 +49,8 @@ export default function RadarChart({
 
   return (
     <div className="w-full">
-      <h3 className="font-display text-navy text-lg font-semibold tracking-tight mb-3">
-        Regional Activation
-      </h3>
-      <svg viewBox="0 0 300 300" className="w-full max-w-[280px] mx-auto">
+      <svg viewBox="0 0 360 360" className="w-full">
+        {/* Axis lines */}
         {Array.from({ length: n }, (_, i) => {
           const p = getPoint(i, maxR);
           return (
@@ -63,34 +61,37 @@ export default function RadarChart({
               x2={p.x}
               y2={p.y}
               stroke="#0d3b66"
-              strokeOpacity={0.08}
+              strokeOpacity={0.1}
               strokeWidth={1}
             />
           );
         })}
 
+        {/* Grid polygons */}
         {gridPaths.map((d, i) => (
           <path
             key={`grid-${i}`}
             d={d}
             fill="none"
             stroke="#0d3b66"
-            strokeOpacity={0.06 + i * 0.02}
+            strokeOpacity={0.06 + i * 0.025}
             strokeWidth={1}
           />
         ))}
 
+        {/* Data fill */}
         <motion.path
           d={dataPath}
-          fill="rgba(249, 87, 56, 0.12)"
+          fill="rgba(249, 87, 56, 0.1)"
           stroke="#f95738"
           strokeWidth={2}
-          initial={{ opacity: 0, scale: 0.8 }}
+          initial={{ opacity: 0, scale: 0.7 }}
           animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1], delay: 0.3 }}
+          transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1], delay: 0.3 }}
           style={{ transformOrigin: `${cx}px ${cy}px` }}
         />
 
+        {/* Data points */}
         {data.map((v, i) => {
           const p = getPoint(i, v * maxR);
           return (
@@ -98,20 +99,21 @@ export default function RadarChart({
               key={`dot-${i}`}
               cx={p.x}
               cy={p.y}
-              r={3.5}
+              r={3}
               fill="#f95738"
               initial={{ opacity: 0, scale: 0 }}
               animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.4, delay: 0.5 + i * 0.08 }}
+              transition={{ duration: 0.35, delay: 0.55 + i * 0.07 }}
             />
           );
         })}
 
+        {/* Labels */}
         {labels.map((label, i) => {
-          const p = getPoint(i, maxR + 20);
+          const p = getPoint(i, maxR + 22);
           const angle = startAngle + i * angleStep;
           const textAnchor =
-            Math.abs(Math.cos(angle)) < 0.1
+            Math.abs(Math.cos(angle)) < 0.15
               ? "middle"
               : Math.cos(angle) > 0
               ? "start"
@@ -124,10 +126,11 @@ export default function RadarChart({
               y={p.y}
               textAnchor={textAnchor}
               dominantBaseline="middle"
-              className="font-body text-navy"
               fontSize={10}
               fill="#0d3b66"
-              fillOpacity={0.5}
+              fillOpacity={0.45}
+              fontFamily="Switzer, sans-serif"
+              letterSpacing="-0.3"
             >
               {label}
             </text>

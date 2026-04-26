@@ -42,7 +42,7 @@ export default function HeadSilhouette({ className }: HeadSilhouetteProps) {
           C 185 20, 200 18, 215 18
           Z
         `}
-        fill="#0d3b66"
+        fill="rgba(30,30,30,0.13)"
       />
       {/* Ear hint */}
       <path
@@ -54,7 +54,7 @@ export default function HeadSilhouette({ className }: HeadSilhouetteProps) {
           C 132 270, 138 263, 140 260
           Z
         `}
-        fill="#0d3b66"
+        fill="rgba(30,30,30,0.13)"
       />
     </svg>
   );

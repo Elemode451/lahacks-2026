@@ -11,35 +11,39 @@ export default function ImportButton({ onClick }: ImportButtonProps) {
     <motion.button
       layoutId="import-container"
       onClick={onClick}
-      className="glass cursor-pointer flex items-center gap-2.5 rounded-full px-5 py-2.5 text-heatmap-hot font-body font-semibold text-sm tracking-wide hover:scale-[1.03] active:scale-[0.98]"
+      className="cursor-pointer flex items-center gap-2.5 font-body font-semibold text-heatmap-hot rounded-full"
       style={{
-        boxShadow:
-          "0 4px 24px rgba(249, 87, 56, 0.12), 0 1px 4px rgba(0,0,0,0.04)",
+        background: "rgba(249, 87, 56, 0.2)",
+        backdropFilter: "blur(48px)",
+        WebkitBackdropFilter: "blur(48px)",
+        border: "1px solid rgba(249, 87, 56, 0.15)",
+        height: 50,
+        paddingLeft: 20,
+        paddingRight: 20,
+        fontSize: 20,
+        letterSpacing: "-0.04em",
+        minWidth: 140,
       }}
-      whileHover={{
-        boxShadow:
-          "0 6px 32px rgba(249, 87, 56, 0.18), 0 2px 8px rgba(0,0,0,0.06)",
-      }}
+      whileHover={{ scale: 1.03, backgroundColor: "rgba(249, 87, 56, 0.26)" }}
+      whileTap={{ scale: 0.97 }}
       transition={{ type: "spring", stiffness: 400, damping: 30 }}
     >
       <span>import</span>
       <svg
-        width="18"
-        height="18"
+        width="22"
+        height="22"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
-        strokeWidth="2.5"
+        strokeWidth="2"
         strokeLinecap="round"
-        strokeLinejoin="round"
       >
-        <path d="M2 10v3a1 1 0 0 0 1 1h3" />
-        <path d="M22 10v3a1 1 0 0 1-1 1h-3" />
-        <path d="M2 10V7a1 1 0 0 1 1-1h3" />
-        <path d="M22 10V7a1 1 0 0 0-1-1h-3" />
-        <line x1="8" y1="10" x2="8" y2="10.01" />
-        <line x1="12" y1="10" x2="12" y2="10.01" />
-        <line x1="16" y1="10" x2="16" y2="10.01" />
+        <line x1="3" y1="12" x2="3" y2="12" strokeWidth="3" />
+        <line x1="6.5" y1="8" x2="6.5" y2="16" />
+        <line x1="10" y1="5" x2="10" y2="19" />
+        <line x1="13.5" y1="7" x2="13.5" y2="17" />
+        <line x1="17" y1="9" x2="17" y2="15" />
+        <line x1="20.5" y1="11" x2="20.5" y2="13" strokeWidth="3" />
       </svg>
     </motion.button>
   );
