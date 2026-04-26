@@ -1,9 +1,9 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import dynamic from "next/dynamic";
-import { X, Send } from "lucide-react";
+import { X, Send, LogOut } from "lucide-react";
 import {
   SeratoneLogo,
   SoundBarsIcon,
@@ -13,6 +13,9 @@ import {
   UploadIcon,
 } from "@/components/Icons";
 import ColorBends, { type ColorBendsHandle } from "@/components/ColorBends";
+import { useAuth } from "@/lib/auth-context";
+import { useRouter } from "next/navigation";
+import { apiFetch, apiUrl } from "@/lib/api";
 
 const BrainScene = dynamic(() => import("@/components/BrainScene"), {
   ssr: false,
@@ -30,13 +33,16 @@ const SongRecommendations = dynamic(() => import("@/components/SongRecommendatio
   ssr: false,
 });
 
-type ViewState = "intro" | "importing" | "analyzing" | "analysis";
+type ViewState = "intro" | "importing" | "analyzing" | "processing" | "analysis";
 type ImportType = "file" | "spotify" | "youtube";
 
 const panelEase = [0.16, 1, 0.3, 1] as const;
 const TOPBAR_H = 93;
 
 export default function Home() {
+  const { user, loading, displayName, signOut, session } = useAuth();
+  const router = useRouter();
+
   const [viewState, setViewState] = useState<ViewState>("intro");
   const [importType, setImportType] = useState<ImportType>("file");
   const [songs, setSongs] = useState<string[]>([]);
@@ -46,8 +52,31 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const colorBendsRef = useRef<ColorBendsHandle>(null);
   const analyzeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
   const [vw, setVw] = useState(1280);
   const [vh, setVh] = useState(832);
+
+  // Processing state for real API calls
+  const [processingStatus, setProcessingStatus] = useState("");
+  const [processingProgress, setProcessingProgress] = useState(0);
+  const [processingTotal, setProcessingTotal] = useState(0);
+
+  // Analysis results from API
+  const [analysisResult, setAnalysisResult] = useState<Record<string, unknown> | null>(null);
+
+  useEffect(() => {
+    if (!loading && !user) {
+      router.replace("/login");
+    }
+  }, [user, loading, router]);
+
+  // Close EventSource on unmount
+  useEffect(() => {
+    return () => {
+      eventSourceRef.current?.close();
+      eventSourceRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     const update = () => {
@@ -114,19 +143,185 @@ export default function Home() {
     }
   };
 
-  const handleAnalyze = () => {
-    if (!canAnalyze) return;
+  const resetState = () => {
+    cancelAnalyzeTimeout();
+    eventSourceRef.current?.close();
+    eventSourceRef.current = null;
+    setBrainFlashing(false);
+    setViewState("intro");
+    setProcessingStatus("");
+    setProcessingProgress(0);
+    setProcessingTotal(0);
+    setAnalysisResult(null);
+  };
+
+  // ── Real API: Creator Mode (file upload) ──
+  const handleCreatorAnalyze = useCallback(async () => {
+    if (uploadedFiles.length === 0) return;
+
     cancelAnalyzeTimeout();
     setBrainFlashing(true);
-    setViewState("analyzing");
-    analyzeTimeoutRef.current = setTimeout(() => {
-      analyzeTimeoutRef.current = null;
+    setViewState("processing");
+    setProcessingStatus("Uploading and analyzing your track...");
+    setProcessingProgress(0);
+    setProcessingTotal(uploadedFiles.length);
+
+    try {
+      const file = uploadedFiles[0];
+      const formData = new FormData();
+      formData.append("audio", file);
+      formData.append("title", file.name.replace(/\.[^.]+$/, ""));
+      formData.append("artist", "Unknown");
+
+      const res = await apiFetch(
+        "/creator/analyze",
+        { method: "POST", body: formData },
+        session?.access_token ?? null,
+      );
+
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(err);
+      }
+
+      const result = await res.json();
+      setAnalysisResult(result);
+      setProcessingProgress(1);
       setBrainFlashing(false);
       setViewState("analysis");
-    }, 800);
+    } catch (err) {
+      setProcessingStatus(`Failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+      setBrainFlashing(false);
+      setViewState("importing");
+    }
+  }, [uploadedFiles, session]);
+
+  // ── Real API: Listener Mode (Spotify/YouTube links) ──
+  const handleListenerAnalyze = useCallback(async () => {
+    if (songs.length === 0) return;
+
+    cancelAnalyzeTimeout();
+    setBrainFlashing(true);
+    setViewState("processing");
+    setProcessingStatus("Submitting songs for analysis...");
+    setProcessingProgress(0);
+
+    try {
+      const clusterSongs = songs.map((url) => {
+        if (url.includes("spotify.com") || url.includes("spotify:")) {
+          const match = url.match(/track\/([a-zA-Z0-9]+)/);
+          if (match) return { spotify_id: match[1] };
+          return { youtube_url: url };
+        }
+        return { youtube_url: url };
+      });
+
+      const isPlaylistUrl =
+        songs.length === 1 && songs[0].includes("spotify.com/playlist");
+
+      const body: Record<string, unknown> = {};
+      if (isPlaylistUrl) {
+        body.spotify_playlist_url = songs[0];
+      } else {
+        body.songs = clusterSongs;
+      }
+      body.title = "My Analysis";
+
+      const token = session?.access_token ?? null;
+      const res = await apiFetch(
+        "/clusters/analyze",
+        { method: "POST", body: JSON.stringify(body) },
+        token,
+      );
+
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(err);
+      }
+
+      const { batch_id, total_songs } = await res.json();
+      setProcessingTotal(total_songs);
+
+      // Clean up previous EventSource if any
+      eventSourceRef.current?.close();
+
+      const eventSource = new EventSource(apiUrl(`/clusters/batch/${batch_id}/events`));
+      eventSourceRef.current = eventSource;
+
+      eventSource.addEventListener("song_complete", (e) => {
+        const data = JSON.parse(e.data);
+        setProcessingProgress(data.index);
+        setProcessingTotal(data.total);
+        setProcessingStatus(
+          `Analyzed ${data.index}/${data.total}: ${data.song}${data.cached ? " (cached)" : ""}`,
+        );
+      });
+
+      eventSource.addEventListener("song_error", (e) => {
+        const data = JSON.parse(e.data);
+        setProcessingStatus(`Error on ${data.song}: ${data.error}`);
+      });
+
+      eventSource.addEventListener("complete", (e) => {
+        const result = JSON.parse(e.data);
+        setAnalysisResult(result);
+        setBrainFlashing(false);
+        setViewState("analysis");
+        eventSource.close();
+        eventSourceRef.current = null;
+      });
+
+      eventSource.addEventListener("error", (e) => {
+        const data = e instanceof MessageEvent ? JSON.parse(e.data) : null;
+        setProcessingStatus(
+          `Analysis failed: ${data?.message ?? "Unknown error"}`,
+        );
+        setBrainFlashing(false);
+        setViewState("importing");
+        eventSource.close();
+        eventSourceRef.current = null;
+      });
+
+      eventSource.onerror = () => {
+        setProcessingStatus("Connection lost. Please try again.");
+        setBrainFlashing(false);
+        setViewState("importing");
+        eventSource.close();
+        eventSourceRef.current = null;
+      };
+    } catch (err) {
+      setProcessingStatus(`Failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+      setBrainFlashing(false);
+      setViewState("importing");
+    }
+  }, [songs, session]);
+
+  // Wire the analyze button to the right handler based on importType
+  const handleAnalyze = () => {
+    if (!canAnalyze) return;
+    if (importType === "file") {
+      handleCreatorAnalyze();
+    } else {
+      handleListenerAnalyze();
+    }
   };
 
   useEffect(() => () => cancelAnalyzeTimeout(), []);
+
+  // Build overview text from analysis result
+  const overviewText = analysisResult
+    ? (analysisResult as Record<string, unknown>).summary as string ??
+      (analysisResult as Record<string, unknown>).vibe_description as string ??
+      "This music fits a limbic-dominant profile with strong auditory cortex engagement. High introspective alignment suggests deep default-mode network resonance characteristic of emotional processing music."
+    : "This music fits a limbic-dominant profile with strong auditory cortex engagement. High introspective alignment suggests deep default-mode network resonance characteristic of emotional processing music.";
+
+  if (loading || !user) {
+    return (
+      <div className="h-full flex items-center justify-center bg-[#fffdf5]">
+        <div className="w-6 h-6 border-2 border-[#f95738] border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-[#fffdf5] font-sans selection:bg-[#f95738] selection:text-white">
@@ -187,10 +382,25 @@ export default function Home() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.6, ease: "linear", delay: 0.5 }}
-        onClick={() => { cancelAnalyzeTimeout(); setBrainFlashing(false); setViewState("intro"); }}
+        onClick={resetState}
       >
         <SeratoneLogo className="h-[41px] w-auto" />
       </motion.div>
+
+      {/* User info + sign out */}
+      <div
+        className="absolute top-0 right-8 z-20 flex items-center gap-4"
+        style={{ height: TOPBAR_H }}
+      >
+        <span className="text-[#0d3b66]/50 text-sm">{displayName}</span>
+        <button
+          onClick={signOut}
+          className="text-[#0d3b66]/30 hover:text-[#f95738] transition-colors cursor-pointer"
+          title="Sign out"
+        >
+          <LogOut className="w-4 h-4" />
+        </button>
+      </div>
 
       {/* Right Section (Analysis View) — slides in from right */}
       <motion.div
@@ -222,7 +432,7 @@ export default function Home() {
               {/* Chat + Song Recommendations */}
               <div className="flex-1 min-h-0 flex gap-4 mt-4">
                 <ChatInterface
-                  overview="This music fits a limbic-dominant profile with strong auditory cortex engagement. High introspective alignment suggests deep default-mode network resonance characteristic of emotional processing music."
+                  overview={overviewText}
                   className="flex-1 min-w-0"
                 />
                 <SongRecommendations className="w-[40%] shrink-0" />
@@ -236,9 +446,47 @@ export default function Home() {
       {viewState === "importing" && (
         <div
           className="absolute inset-0 z-[15]"
-          onClick={() => { cancelAnalyzeTimeout(); setBrainFlashing(false); setViewState("intro"); }}
+          onClick={resetState}
         />
       )}
+
+      {/* Processing overlay */}
+      <AnimatePresence>
+        {viewState === "processing" && (
+          <motion.div
+            className="absolute z-30 flex flex-col items-center justify-center bg-[#fffdf5]/90 backdrop-blur-sm"
+            style={{ inset: 0 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <div className="w-8 h-8 border-2 border-[#f95738] border-t-transparent rounded-full animate-spin mb-6" />
+            <p className="text-[#f95738] font-medium text-lg tracking-tight mb-2">
+              Analyzing...
+            </p>
+            {processingTotal > 0 && (
+              <div className="w-64 mb-4">
+                <div className="w-full h-2 rounded-full bg-[rgba(249,87,56,0.15)] overflow-hidden">
+                  <motion.div
+                    className="h-full rounded-full bg-[#f95738]"
+                    initial={{ width: 0 }}
+                    animate={{
+                      width: `${(processingProgress / processingTotal) * 100}%`,
+                    }}
+                    transition={{ duration: 0.3 }}
+                  />
+                </div>
+                <p className="text-[#f95738]/60 text-xs mt-2 text-center">
+                  {processingProgress} / {processingTotal}
+                </p>
+              </div>
+            )}
+            <p className="text-[#f95738]/60 text-sm text-center max-w-md px-8">
+              {processingStatus}
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Import Button / Panel — spring expansion */}
       <AnimatePresence>
@@ -312,7 +560,7 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Content area — large gap below header matching figma */}
+                {/* Content area */}
                 <div className="flex-1 min-h-0 relative flex flex-col" style={{ marginTop: "clamp(16px, 4%, 32px)" }}>
                   <AnimatePresence mode="wait">
                     {importType === "file" ? (
