@@ -195,7 +195,7 @@ async def _submit_and_poll(audio_path: Path) -> dict:
     while asyncio.get_event_loop().time() < deadline:
         await asyncio.sleep(_POLL_INTERVAL_S)
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=300.0) as client:
                 resp = await client.get(f"{worker}/status/{job_id}")
                 resp.raise_for_status()
                 data = resp.json()
