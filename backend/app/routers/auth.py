@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import logging
 import secrets
-from datetime import datetime, timezone
+import time
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
 import httpx
@@ -161,6 +164,7 @@ SPOTIFY_SCOPES = (
     "playlist-read-private playlist-read-collaborative "
     "user-read-email user-read-private"
 )
+_STATE_TTL_SECONDS = 600  # 10 minutes
 
 
 def _spotify_basic_auth() -> str:
@@ -169,17 +173,43 @@ def _spotify_basic_auth() -> str:
     return base64.b64encode(raw.encode()).decode()
 
 
+def _sign_state(state: str) -> str:
+    """Create an HMAC signature for the OAuth state value."""
+    key = settings.spotify_client_secret.encode()
+    payload = f"{state}:{int(time.time())}".encode()
+    sig = hmac.new(key, payload, hashlib.sha256).hexdigest()
+    return f"{state}:{int(time.time())}:{sig}"
+
+
+def _verify_state(signed: str) -> bool:
+    """Verify a signed OAuth state value is valid and not expired."""
+    parts = signed.split(":")
+    if len(parts) != 3:
+        return False
+    state, ts_str, sig = parts
+    try:
+        ts = int(ts_str)
+    except ValueError:
+        return False
+    if time.time() - ts > _STATE_TTL_SECONDS:
+        return False
+    key = settings.spotify_client_secret.encode()
+    expected = hmac.new(key, f"{state}:{ts_str}".encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(sig, expected)
+
+
 @router.get("/spotify", response_model=OAuthStartResponse)
 async def spotify_oauth_start() -> OAuthStartResponse:
     """Build the Spotify authorize URL and return it to the client."""
     state = secrets.token_urlsafe(32)
+    signed_state = _sign_state(state)
     params = urlencode(
         {
             "client_id": settings.spotify_client_id,
             "response_type": "code",
             "redirect_uri": settings.spotify_redirect_uri,
             "scope": SPOTIFY_SCOPES,
-            "state": state,
+            "state": signed_state,
         }
     )
     url = f"{SPOTIFY_AUTH_URL}?{params}"
@@ -189,6 +219,8 @@ async def spotify_oauth_start() -> OAuthStartResponse:
 @router.get("/spotify/callback")
 async def spotify_oauth_callback(code: str, state: str) -> RedirectResponse:
     """Handle the Spotify OAuth redirect: exchange code, upsert user, redirect."""
+    if not _verify_state(state):
+        raise HTTPException(400, "Invalid or expired OAuth state")
     try:
         # 1. Exchange authorization code for tokens
         async with httpx.AsyncClient() as client:
@@ -249,7 +281,10 @@ async def spotify_oauth_callback(code: str, state: str) -> RedirectResponse:
                 break
 
         if user_id:
-            expires_at = datetime.now(timezone.utc).isoformat()
+            expires_in = token_data.get("expires_in", 3600)
+            expires_at = (
+                datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+            ).isoformat()
             sb.table("spotify_tokens").upsert(
                 {
                     "user_id": user_id,

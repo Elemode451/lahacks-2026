@@ -10,5 +10,5 @@ CREATE TABLE IF NOT EXISTS spotify_tokens (
 );
 
 ALTER TABLE spotify_tokens ENABLE ROW LEVEL SECURITY;
-CREATE POLICY spotify_tokens_select ON spotify_tokens FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY spotify_tokens_service ON spotify_tokens FOR ALL USING (true);
+CREATE POLICY spotify_tokens_owner ON spotify_tokens
+    FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
