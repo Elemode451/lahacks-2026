@@ -43,11 +43,11 @@ function heatmapColor(t: number): [number, number, number] {
   return lerpColor(STOPS[2], STOPS[3], (clamped - 0.66) / 0.34);
 }
 
-function computePercentiles(arr: Float32Array, lo: number, hi: number): [number, number] {
-  const sorted = Float32Array.from(arr).sort();
-  const pLo = sorted[Math.floor(lo * (sorted.length - 1))];
-  const pHi = sorted[Math.floor(hi * (sorted.length - 1))];
-  return [pLo, pHi];
+function computeAbsCeiling(arr: Float32Array, percentile: number): number {
+  const abs = new Float32Array(arr.length);
+  for (let i = 0; i < arr.length; i++) abs[i] = Math.abs(arr[i]);
+  abs.sort();
+  return abs[Math.floor(percentile * (abs.length - 1))] || 1;
 }
 
 /* ── Geometry loader ─────────────────────────────────────────────── */
@@ -118,10 +118,10 @@ export default function BrainMesh({
     return fingerprint;
   }, [temporalData, segmentIndex, fingerprint]);
 
-  // Compute robust percentile bounds (2nd → 98th) once per fingerprint
-  const percentileBounds = useMemo(() => {
+  // Compute the 95th-percentile of absolute values as a ceiling
+  const absCeiling = useMemo(() => {
     if (!activeFingerprint || activeFingerprint.length !== N_VERTICES) return null;
-    return computePercentiles(activeFingerprint, 0.02, 0.98);
+    return computeAbsCeiling(activeFingerprint, 0.95);
   }, [activeFingerprint]);
 
   // Apply heatmap colors to vertex color attribute
@@ -130,28 +130,37 @@ export default function BrainMesh({
     const colorAttr = geoData.geometry.getAttribute("color") as THREE.BufferAttribute;
     if (!colorAttr) return;
 
-    if (!activeFingerprint || activeFingerprint.length !== N_VERTICES || !percentileBounds) {
+    if (!activeFingerprint || activeFingerprint.length !== N_VERTICES || !absCeiling) {
       // No fingerprint data — restore base colors
       colorAttr.array.set(geoData.baseColors);
       colorAttr.needsUpdate = true;
       return;
     }
 
-    const [pLo, pHi] = percentileBounds;
-    const range = pHi - pLo || 1;
+    const ceil = absCeiling;
     const arr = colorAttr.array as Float32Array;
+    const base = geoData.baseColors;
 
     for (let v = 0; v < N_VERTICES; v++) {
-      const raw = activeFingerprint[v];
-      const t = (raw - pLo) / range;
-      const [r, g, b] = heatmapColor(t);
-      arr[v * 3] = r;
-      arr[v * 3 + 1] = g;
-      arr[v * 3 + 2] = b;
+      // Map absolute activation to 0–1, apply power curve so low stays cream
+      const t01 = Math.min(1, Math.abs(activeFingerprint[v]) / ceil);
+      const shaped = Math.pow(t01, 2.5);
+
+      if (shaped < 0.05) {
+        // Below threshold: keep original base color (beige/cream)
+        arr[v * 3] = base[v * 3];
+        arr[v * 3 + 1] = base[v * 3 + 1];
+        arr[v * 3 + 2] = base[v * 3 + 2];
+      } else {
+        const [r, g, b] = heatmapColor(shaped);
+        arr[v * 3] = r;
+        arr[v * 3 + 1] = g;
+        arr[v * 3 + 2] = b;
+      }
     }
 
     colorAttr.needsUpdate = true;
-  }, [geoData, activeFingerprint, percentileBounds]);
+  }, [geoData, activeFingerprint, absCeiling]);
 
   // Flash animation
   useEffect(() => {

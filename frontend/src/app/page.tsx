@@ -139,9 +139,16 @@ export default function Home() {
     ];
     const max = Math.max(...entries.map((e) => e.value));
     if (max === 0) return undefined;
+    const min = Math.min(...entries.map((e) => e.value));
+    const range = max - min;
+    if (range === 0) {
+      // All regions identical — show uniform mid-level
+      return entries.map((e) => ({ attribute: e.attribute, value: 50 }));
+    }
+    // Min-max scale to 15–100 so the shape has clear peaks and valleys
     return entries.map((e) => ({
       attribute: e.attribute,
-      value: Math.round((e.value / max) * 100),
+      value: Math.round(15 + ((e.value - min) / range) * 85),
     }));
   }, [analysisResult]);
 
