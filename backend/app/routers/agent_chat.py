@@ -133,7 +133,10 @@ async def agent_chat(
 
         messages = [{"role": "system", "content": system_content}]
         for turn in req.history[-10:]:
-            messages.append({"role": turn.get("role", "user"), "content": turn.get("content", "")})
+            role = turn.get("role", "user")
+            if role not in ("user", "assistant"):
+                role = "user"
+            messages.append({"role": role, "content": turn.get("content", "")})
         messages.append({"role": "user", "content": req.message})
 
         async with httpx.AsyncClient(timeout=30) as client:

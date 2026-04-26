@@ -521,9 +521,9 @@ async def analyze_cluster_stream(
 
             yield _sse_event("complete", response.model_dump())
 
-        except Exception as exc:
+        except Exception:
             logger.exception("Stream aggregation failed")
-            yield _sse_event("error", {"message": f"Analysis failed: {exc}"})
+            yield _sse_event("error", {"message": "Analysis failed — please try again"})
         finally:
             for p in audio_paths:
                 cleanup_audio(p)
