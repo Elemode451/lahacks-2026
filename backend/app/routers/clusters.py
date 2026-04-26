@@ -246,6 +246,9 @@ async def _process_batch(
         batch["done"] = True
         # Sentinel: signals SSE reader that no more events will arrive
         await q.put(None)
+        # Clean up batch entry after 5 minutes to avoid memory leak
+        await asyncio.sleep(300)
+        _batches.pop(batch_id, None)
 
 
 @router.post("/analyze")
@@ -321,18 +324,20 @@ async def batch_events(batch_id: str, request: Request):
     q: asyncio.Queue = batch["events"]
 
     async def event_stream():
+        if batch["done"] and q.empty():
+            return
         while True:
             if await request.is_disconnected():
                 return
             try:
                 event = await asyncio.wait_for(q.get(), timeout=30.0)
             except asyncio.TimeoutError:
-                # Send keepalive comment to prevent proxy/client timeouts
+                if batch["done"] and q.empty():
+                    return
                 yield ": keepalive\n\n"
                 continue
 
             if event is None:
-                # Sentinel — batch is done
                 return
             yield event
 
