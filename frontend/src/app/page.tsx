@@ -16,6 +16,7 @@ import ColorBends, { type ColorBendsHandle } from "@/components/ColorBends";
 import { useAuth } from "@/lib/auth-context";
 import { useRouter } from "next/navigation";
 import { apiFetch, apiUrl } from "@/lib/api";
+import type { RecommendedSong } from "@/components/SongRecommendations";
 
 const BrainScene = dynamic(() => import("@/components/BrainScene"), {
   ssr: false,
@@ -63,6 +64,11 @@ export default function Home() {
 
   // Analysis results from API
   const [analysisResult, setAnalysisResult] = useState<Record<string, unknown> | null>(null);
+
+  // Recommendation state
+  const [recommendations, setRecommendations] = useState<RecommendedSong[]>([]);
+  const [recsLoading, setRecsLoading] = useState(false);
+  const seenSongIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!loading && !user) {
@@ -153,7 +159,112 @@ export default function Home() {
     setProcessingProgress(0);
     setProcessingTotal(0);
     setAnalysisResult(null);
+    setRecommendations([]);
+    setRecsLoading(false);
+    seenSongIdsRef.current.clear();
   };
+
+  // Fetch recommendations for a given song identifier
+  const fetchRecommendations = useCallback(
+    async (songId: string) => {
+      setRecsLoading(true);
+      const token = session?.access_token ?? null;
+
+      try {
+        const isSpotify = songId.startsWith("spotify:");
+        const body: Record<string, unknown> = {
+          n: 10,
+          exclude_previously_recommended: true,
+        };
+        if (isSpotify) {
+          body.spotify_id = songId.replace("spotify:", "");
+        } else {
+          body.youtube_url = songId;
+        }
+
+        const similarRes = await apiFetch(
+          "/recommendations/similar",
+          { method: "POST", body: JSON.stringify(body) },
+          token,
+        );
+
+        let similarSongs: RecommendedSong[] = [];
+        if (similarRes.ok) {
+          const data = await similarRes.json();
+          similarSongs = (data.recommendations ?? []).map(
+            (r: { song: { song_id: string; title: string; artist: string }; similarity_score: number; source: string }) => ({
+              song_id: r.song.song_id,
+              title: r.song.title,
+              artist: r.song.artist,
+              similarity_score: r.similarity_score,
+              source: r.source ?? "brain_similarity",
+            }),
+          );
+        }
+
+        let collabSongs: RecommendedSong[] = [];
+        if (token) {
+          const collabRes = await apiFetch(
+            "/recommendations/collaborative",
+            { method: "POST", body: JSON.stringify({ n: 10 }) },
+            token,
+          );
+          if (collabRes.ok) {
+            const data = await collabRes.json();
+            collabSongs = (data.recommendations ?? []).map(
+              (r: { song: { song_id: string; title: string; artist: string }; similarity_score: number; source: string }) => ({
+                song_id: r.song.song_id,
+                title: r.song.title,
+                artist: r.song.artist,
+                similarity_score: r.similarity_score,
+                source: r.source ?? "collaborative",
+              }),
+            );
+          }
+        }
+
+        // Blend: brain-similar first, then collaborative, deduplicated
+        const seen = seenSongIdsRef.current;
+        const blended: RecommendedSong[] = [];
+        for (const song of [...similarSongs, ...collabSongs]) {
+          if (!seen.has(song.song_id)) {
+            seen.add(song.song_id);
+            blended.push(song);
+          }
+        }
+
+        setRecommendations((prev) => {
+          const existingIds = new Set(prev.map((s) => s.song_id));
+          const newSongs = blended.filter((s) => !existingIds.has(s.song_id));
+          return [...prev, ...newSongs];
+        });
+      } catch (err) {
+        console.error("Failed to fetch recommendations:", err);
+      } finally {
+        setRecsLoading(false);
+      }
+    },
+    [session],
+  );
+
+  // Handle clicking a recommended song — trigger analysis for it
+  const handleRecommendedSongClick = useCallback(
+    (song: RecommendedSong) => {
+      const songId = song.song_id;
+      const isSpotify = songId.startsWith("spotify:");
+
+      if (isSpotify) {
+        const spotifyId = songId.replace("spotify:", "");
+        const url = `https://open.spotify.com/track/${spotifyId}`;
+        setSongs((prev) => [...prev, url]);
+      } else {
+        setSongs((prev) => [...prev, songId]);
+      }
+
+      setImportType(songId.startsWith("spotify:") ? "spotify" : "youtube");
+    },
+    [],
+  );
 
   // ── Real API: Creator Mode (file upload) ──
   const handleCreatorAnalyze = useCallback(async () => {
@@ -189,12 +300,18 @@ export default function Home() {
       setProcessingProgress(1);
       setBrainFlashing(false);
       setViewState("analysis");
+
+      // Fetch recommendations using the creator song_id
+      const songId = result.song?.song_id;
+      if (songId) {
+        fetchRecommendations(songId);
+      }
     } catch (err) {
       setProcessingStatus(`Failed: ${err instanceof Error ? err.message : "Unknown error"}`);
       setBrainFlashing(false);
       setViewState("importing");
     }
-  }, [uploadedFiles, session]);
+  }, [uploadedFiles, session, fetchRecommendations]);
 
   // ── Real API: Listener Mode (Spotify/YouTube links) ──
   const handleListenerAnalyze = useCallback(async () => {
@@ -269,6 +386,15 @@ export default function Home() {
         setViewState("analysis");
         eventSource.close();
         eventSourceRef.current = null;
+
+        // Fetch recommendations for the first analyzed song
+        const analyzedSongs = result.songs as Array<{ song_id?: string }> | undefined;
+        if (analyzedSongs?.length) {
+          const firstSongId = analyzedSongs[0].song_id;
+          if (firstSongId) {
+            fetchRecommendations(firstSongId);
+          }
+        }
       });
 
       eventSource.addEventListener("error", (e) => {
@@ -294,7 +420,21 @@ export default function Home() {
       setBrainFlashing(false);
       setViewState("importing");
     }
-  }, [songs, session]);
+  }, [songs, session, fetchRecommendations]);
+
+  // Refresh recommendations — re-fetches with history exclusion
+  const handleRefreshRecommendations = useCallback(() => {
+    if (!analysisResult) return;
+
+    // Try creator song first, then listener songs
+    const creatorSongId = (analysisResult as Record<string, unknown>).song as { song_id?: string } | undefined;
+    const listenerSongs = (analysisResult as Record<string, unknown>).songs as Array<{ song_id?: string }> | undefined;
+
+    const songId = creatorSongId?.song_id ?? listenerSongs?.[0]?.song_id;
+    if (songId) {
+      fetchRecommendations(songId);
+    }
+  }, [analysisResult, fetchRecommendations]);
 
   // Wire the analyze button to the right handler based on importType
   const handleAnalyze = () => {
@@ -435,7 +575,13 @@ export default function Home() {
                   overview={overviewText}
                   className="flex-1 min-w-0"
                 />
-                <SongRecommendations className="w-[40%] shrink-0" />
+                <SongRecommendations
+                  className="w-[40%] shrink-0"
+                  recommendations={recommendations}
+                  loading={recsLoading}
+                  onSongClick={handleRecommendedSongClick}
+                  onRefresh={handleRefreshRecommendations}
+                />
               </div>
             </motion.div>
           )}
