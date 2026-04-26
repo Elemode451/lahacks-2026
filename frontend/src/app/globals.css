@@ -1,4 +1,4 @@
-@import url("https://api.fontshare.com/v2/css?f[]=switzer@400,500,600,700&display=swap");
+@import url("https://api.fontshare.com/v2/css?f[]=switzer@400,500,600,700&f[]=zodiak@400,600,700&display=swap");
 @import "tailwindcss";
 
 :root {
@@ -8,6 +8,7 @@
   --heatmap-mid: #ee964b;
   --heatmap-low: #f4d35e;
 
+  --font-display: 'Zodiak', Georgia, serif;
   --font-body: 'Switzer', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
@@ -65,4 +66,95 @@ input:focus, textarea:focus {
 
 .brain-flash {
   animation: brain-flash 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Glassmorphism card */
+.glass-card {
+  background: rgba(255, 253, 245, 0.55);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 20px;
+}
+
+/* Section header — Zodiak display font */
+.section-header {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 15px;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--navy);
+  opacity: 0.7;
+}
+
+/* Dropzone dashed border animation */
+@keyframes dropzone-dash {
+  0% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: 24; }
+}
+
+.dropzone-border {
+  border: 2.5px dashed rgba(249, 87, 56, 0.35);
+  border-radius: 24px;
+  transition: border-color 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+              background-color 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dropzone-border:hover {
+  border-color: rgba(249, 87, 56, 0.6);
+  background-color: rgba(249, 87, 56, 0.03);
+}
+
+/* Processing pulse animation */
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.05); }
+}
+
+.pulse-glow {
+  animation: pulse-glow 2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+/* Shimmer for loading text */
+@keyframes shimmer-text {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+.shimmer-text {
+  background: linear-gradient(90deg, #f95738 0%, #ee964b 25%, #f95738 50%, #ee964b 75%, #f95738 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: shimmer-text 3s linear infinite;
+}
+
+/* Typing indicator dots */
+@keyframes typing-dot {
+  0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-3px); }
+}
+
+.typing-dot {
+  animation: typing-dot 1.4s infinite;
+}
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+/* Progress bar shimmer */
+@keyframes progress-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+
+/* Song card hover lift */
+.song-card-hover {
+  transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.song-card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(13, 59, 102, 0.08);
 }

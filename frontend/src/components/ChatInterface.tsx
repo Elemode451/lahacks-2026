@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Send } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { apiFetch } from "@/lib/api";
 
 interface Message {
@@ -94,29 +95,40 @@ export default function ChatInterface({
   return (
     <div className={`flex flex-col min-h-0 ${className}`}>
       {/* Message list */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-2 pb-2 pr-0.5">
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-          >
-            <p
-              className={`text-xs leading-relaxed rounded-2xl px-3 py-2 max-w-[90%] ${
-                msg.role === "user"
-                  ? "bg-[rgba(249,87,56,0.1)] text-[#f95738]"
-                  : "text-[#0d3b66]/70"
-              }`}
+      <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-2.5 pb-2 pr-0.5">
+        <AnimatePresence initial={false}>
+          {messages.map((msg, i) => (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, y: 6, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+              className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
             >
-              {msg.text}
-            </p>
-          </div>
-        ))}
+              <div
+                className={`text-xs leading-relaxed rounded-2xl px-3.5 py-2.5 max-w-[88%] ${
+                  msg.role === "user"
+                    ? "bg-[rgba(249,87,56,0.12)] text-[#f95738] border border-[rgba(249,87,56,0.08)] rounded-br-lg"
+                    : "text-[#0d3b66]/65 bg-[rgba(13,59,102,0.03)] border border-[rgba(13,59,102,0.06)] rounded-bl-lg"
+                }`}
+              >
+                {msg.text}
+              </div>
+            </motion.div>
+          ))}
+        </AnimatePresence>
         {loading && (
-          <div className="flex justify-start">
-            <p className="text-xs leading-relaxed text-[#0d3b66]/40 italic px-3 py-2">
-              Sera is thinking...
-            </p>
-          </div>
+          <motion.div
+            className="flex justify-start"
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+          >
+            <div className="flex items-center gap-1.5 px-4 py-3 rounded-2xl rounded-bl-lg bg-[rgba(13,59,102,0.03)] border border-[rgba(13,59,102,0.06)]">
+              <span className="typing-dot w-1.5 h-1.5 rounded-full bg-[#0d3b66]/30" />
+              <span className="typing-dot w-1.5 h-1.5 rounded-full bg-[#0d3b66]/30" />
+              <span className="typing-dot w-1.5 h-1.5 rounded-full bg-[#0d3b66]/30" />
+            </div>
+          </motion.div>
         )}
         <div ref={bottomRef} />
       </div>
@@ -129,13 +141,13 @@ export default function ChatInterface({
           onChange={(e) => setInput(e.target.value)}
           placeholder="ask Sera about this track…"
           disabled={loading}
-          className="w-full bg-[rgba(249,87,56,0.06)] border border-[rgba(249,87,56,0.18)] focus:border-[#f95738] rounded-full text-[#f95738] placeholder-[rgba(249,87,56,0.3)] outline-none text-xs transition-colors disabled:opacity-50"
-          style={{ padding: "9px 44px 9px 14px" }}
+          className="w-full bg-[rgba(13,59,102,0.03)] border border-[rgba(13,59,102,0.08)] focus:border-[#f95738]/50 focus:bg-[rgba(249,87,56,0.02)] rounded-full text-[#0d3b66] placeholder-[rgba(13,59,102,0.3)] outline-none text-xs transition-all duration-200 disabled:opacity-50"
+          style={{ padding: "10px 44px 10px 16px" }}
         />
         <button
           type="submit"
           disabled={loading}
-          className="absolute right-1.5 bg-[#f95738] hover:bg-[#d84b31] transition-colors w-7 h-7 rounded-full flex items-center justify-center disabled:opacity-50"
+          className="absolute right-1.5 bg-[#f95738] hover:bg-[#d84b31] transition-all duration-200 w-7 h-7 rounded-full flex items-center justify-center disabled:opacity-40 hover:shadow-[0_2px_8px_rgba(249,87,56,0.3)]"
         >
           <Send className="size-3 text-white -translate-x-px translate-y-px" />
         </button>
