@@ -36,13 +36,9 @@ const SongRecommendations = dynamic(() => import("@/components/SongRecommendatio
 const KeyInfoDisplay = dynamic(() => import("@/components/KeyInfo"), {
   ssr: false,
 });
-const EmotionalProfile = dynamic(() => import("@/components/EmotionalProfile"), {
-  ssr: false,
-});
 const FriendsActivity = dynamic(() => import("@/components/FriendsActivity"), {
   ssr: false,
 });
-
 type ViewState = "intro" | "importing" | "analyzing" | "processing" | "analysis";
 type ImportType = "file" | "spotify" | "youtube";
 
@@ -699,10 +695,9 @@ export default function Home() {
 
   useEffect(() => () => cancelAnalyzeTimeout(), []);
 
-  // Build overview text from analysis result, enriched with brain regions and emotions
+  // Build concise overview for Sera's initial message (1-2 sentences max)
   const overviewText = useMemo(() => {
-    const fallback =
-      "This music fits a limbic-dominant profile with strong auditory cortex engagement. High introspective alignment suggests deep default-mode network resonance characteristic of emotional processing music.";
+    const fallback = "Strong auditory cortex engagement with deep emotional resonance.";
     if (!analysisResult) return fallback;
 
     const regionLabels: Record<string, string> = {
@@ -713,7 +708,6 @@ export default function Home() {
       multisensory: "multisensory integration areas",
     };
 
-    // Build brain-region activation sentence from the top activated regions
     const scores = (analysisResult.combined_region_scores ?? analysisResult.region_scores) as
       | Record<string, number>
       | undefined;
@@ -722,31 +716,22 @@ export default function Home() {
       const ranked = Object.entries(scores)
         .filter(([k, v]) => k !== "whole_cortex" && typeof v === "number")
         .sort(([, a], [, b]) => b - a);
-      const topRegions = ranked.slice(0, 3).map(([k]) => regionLabels[k] ?? k.replace(/_/g, " "));
+      const topRegions = ranked.slice(0, 2).map(([k]) => regionLabels[k] ?? k.replace(/_/g, " "));
       if (topRegions.length > 0) {
-        regionSentence = `This track most strongly activates the ${topRegions.join(", ")}.`;
+        regionSentence = `Strongest activation in ${topRegions.join(" and ")}.`;
       }
     }
 
-    // Emotional profile sentence
     const emotionalProfile = analysisResult.emotional_profile as
-      | { summary?: string; dominant_emotions?: string[] }
+      | { dominant_emotions?: string[] }
       | undefined;
     let emotionSentence = "";
-    if (emotionalProfile?.summary) {
-      emotionSentence = emotionalProfile.summary;
-    } else if (emotionalProfile?.dominant_emotions?.length) {
-      const emos = emotionalProfile.dominant_emotions.map((e) => e.toLowerCase());
-      const emotionList =
-        emos.length <= 2
-          ? emos.join(" and ")
-          : `${emos.slice(0, -1).join(", ")}, and ${emos[emos.length - 1]}`;
-      emotionSentence = `The primary predicted emotional responses are ${emotionList}.`;
+    if (emotionalProfile?.dominant_emotions?.length) {
+      const top2 = emotionalProfile.dominant_emotions.slice(0, 2).map((e) => e.toLowerCase());
+      emotionSentence = `Evoking ${top2.join(" and ")}.`;
     }
 
-    // Compose: brain regions first (most interesting), then emotions, then vibe
-    const vibe = (analysisResult.vibe_description as string | undefined) ?? "";
-    const parts = [regionSentence, emotionSentence, vibe].filter(Boolean);
+    const parts = [regionSentence, emotionSentence].filter(Boolean);
     return parts.length > 0 ? parts.join(" ") : fallback;
   }, [analysisResult]);
 
@@ -858,20 +843,18 @@ export default function Home() {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.6, delay: 0.4 }}
             >
-              {/* Timeline Section */}
+              {/* Cortical Profile + Share */}
               <motion.div
                 className="glass-card px-6 py-5 shrink-0"
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5, delay: 0.5, ease: panelEase }}
               >
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-2">
-                    <Radio className="w-3.5 h-3.5 text-[#0d3b66]/40" />
-                    <h3 className="section-header">Timeline</h3>
+                    <Brain className="w-3.5 h-3.5 text-[#0d3b66]/40" />
+                    <h3 className="section-header">Cortical Profile</h3>
                   </div>
-
-                  {/* Share button */}
                   <motion.button
                     onClick={handleShareAnalysis}
                     disabled={shareStatus === "sharing" || !session?.access_token}
@@ -904,46 +887,15 @@ export default function Home() {
                     </AnimatePresence>
                   </motion.button>
                 </div>
-                <AudioTimeline
-                  duration={214}
-                  segmentActivations={timelineActivations}
-                  peakIndex={peakSegment}
-                  currentIndex={currentSegment}
-                  onSegmentChange={setCurrentSegment}
-                  className="max-w-[320px] mx-auto w-full"
-                />
-              </motion.div>
-
-              {/* Radar Chart Section */}
-              <motion.div
-                className="glass-card px-6 py-5 shrink-0"
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.6, ease: panelEase }}
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  <Brain className="w-3.5 h-3.5 text-[#0d3b66]/40" />
-                  <h3 className="section-header">Cortical Profile</h3>
-                </div>
                 <div className="flex justify-center">
                   <MusicRadarChart data={radarData} className="w-full max-w-[340px]" style={{ height: "min(220px, 26vh)" }} />
                 </div>
               </motion.div>
 
-              {/* Emotional Response */}
-              <EmotionalProfile
-                emotionalProfile={
-                  analysisResult?.emotional_profile as
-                    | { emotions?: { name: string; intensity: number; level: string; description: string }[]; dominant_emotions?: string[]; summary?: string }
-                    | null
-                    | undefined
-                }
-              />
-
               {/* Key Info */}
               <KeyInfoDisplay
                 analysisResult={analysisResult}
-                className="mt-3 px-1"
+                className="px-1"
               />
 
               {/* Chat + Song Recommendations */}
@@ -951,7 +903,7 @@ export default function Home() {
                 className="flex-1 min-h-0 flex gap-4"
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.7, ease: panelEase }}
+                transition={{ duration: 0.5, delay: 0.6, ease: panelEase }}
               >
                 {/* Chat Section */}
                 <div className="glass-card px-5 py-4 flex-1 min-w-0 flex flex-col">
@@ -1037,6 +989,27 @@ export default function Home() {
                     </>
                   )}
                 </div>
+              </motion.div>
+
+              {/* Timeline Section */}
+              <motion.div
+                className="glass-card px-6 py-4 shrink-0"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.7, ease: panelEase }}
+              >
+                <div className="flex items-center gap-2 mb-3">
+                  <Radio className="w-3.5 h-3.5 text-[#0d3b66]/40" />
+                  <h3 className="section-header">Timeline</h3>
+                </div>
+                <AudioTimeline
+                  duration={214}
+                  segmentActivations={timelineActivations}
+                  peakIndex={peakSegment}
+                  currentIndex={currentSegment}
+                  onSegmentChange={setCurrentSegment}
+                  className="max-w-[320px] mx-auto w-full"
+                />
               </motion.div>
             </motion.div>
           )}
