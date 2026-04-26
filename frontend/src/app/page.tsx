@@ -419,22 +419,6 @@ export default function Home() {
     [],
   );
 
-  // Refresh recommendations
-  const handleRefreshRecommendations = useCallback(() => {
-    const result = analysisResult;
-    if (!result) return;
-    const analyzedSongs = (result as Record<string, unknown>).songs as Array<{ song_id?: string; spotify_id?: string }> | undefined;
-    if (analyzedSongs?.length) {
-      const first = analyzedSongs[0];
-      const cacheKey = first.spotify_id
-        ? `spotify:${first.spotify_id}`
-        : first.song_id;
-      if (cacheKey) {
-        fetchRecommendations(cacheKey);
-      }
-    }
-  }, [analysisResult, fetchRecommendations]);
-
   // ── Real API: Creator Mode (file upload) ──
   const handleCreatorAnalyze = useCallback(async () => {
     if (uploadedFiles.length === 0) return;
