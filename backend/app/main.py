@@ -5,6 +5,9 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from slowapi import Limiter
+from slowapi.middleware import SlowAPIMiddleware
+from slowapi.util import get_remote_address
 
 from app.config import settings
 from app.routers import analyses, auth, clusters, creator, recommend, spotify_router
@@ -21,14 +24,26 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# CORS — allow all origins during development
+# CORS — restrict to known origins
+_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    # Add your production domain here, e.g.:
+    # "https://seratune.com",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Rate limiting
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
 
 # Static files (brain visualization frames, etc.)
 app.mount("/static", StaticFiles(directory=settings.static_dir), name="static")

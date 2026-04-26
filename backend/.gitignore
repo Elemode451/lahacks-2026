@@ -13,3 +13,4 @@ venv/
 app/static/*
 !app/static/.gitkeep
 /cache/
+/data/

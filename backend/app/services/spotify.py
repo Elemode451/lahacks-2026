@@ -150,13 +150,33 @@ async def _scrape_playlist_tracks(
     if not track_ids:
         return []
 
-    # Step 2: Fetch each track's metadata via the single-track API endpoint
-    # (GET /tracks/{id} works with client credentials unlike the batch/playlist endpoints)
+    # Step 2: Batch-fetch track metadata (Spotify allows up to 50 IDs per request)
+    token = await _get_token()
     results: list[SpotifySearchResult] = []
-    for track_id in track_ids:
-        info = await get_track_info(track_id)
-        if info:
-            results.append(info)
+    for i in range(0, len(track_ids), 50):
+        batch = track_ids[i:i + 50]
+        ids_param = ",".join(batch)
+        try:
+            resp = await client.get(
+                f"https://api.spotify.com/v1/tracks?ids={ids_param}",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            for track in data.get("tracks", []):
+                if track:
+                    artists = ", ".join(a["name"] for a in track.get("artists", []))
+                    images = track.get("album", {}).get("images", [])
+                    results.append(SpotifySearchResult(
+                        spotify_id=track["id"],
+                        title=track["name"],
+                        artist=artists,
+                        album=track.get("album", {}).get("name"),
+                        album_art_url=images[0]["url"] if images else None,
+                        preview_url=track.get("preview_url"),
+                    ))
+        except Exception:
+            logger.warning("Batch track fetch failed for %d IDs", len(batch))
     return results
 
 

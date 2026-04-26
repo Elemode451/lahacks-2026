@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from supabase import create_client
 
 from app.config import settings
@@ -22,11 +24,17 @@ def _ephemeral_client():
     This avoids mutating session state on the shared singleton,
     which would cause cross-user contamination in a concurrent server.
     """
+    if not settings.supabase_url or not settings.supabase_key:
+        raise HTTPException(503, "Authentication service not configured")
     return create_client(settings.supabase_url, settings.supabase_key)
 
 
+limiter = Limiter(key_func=get_remote_address)
+
+
 @router.post("/signup", response_model=AuthResponse)
-async def signup(req: SignUpRequest):
+@limiter.limit("5/minute")
+async def signup(request: Request, req: SignUpRequest):
     """Create a new user account."""
     try:
         sb = _ephemeral_client()
@@ -63,7 +71,8 @@ async def signup(req: SignUpRequest):
 
 
 @router.post("/login", response_model=AuthResponse)
-async def login(req: LoginRequest):
+@limiter.limit("10/minute")
+async def login(request: Request, req: LoginRequest):
     """Log in with email and password."""
     try:
         sb = _ephemeral_client()
@@ -106,7 +115,10 @@ async def sync_profile(user_id: str = Depends(require_auth)):
     to populate the profiles table with the user's provider display name.
     If a display_name already exists it is preserved.
     """
-    sb = get_supabase_admin()
+    try:
+        sb = get_supabase_admin()
+    except Exception:
+        raise HTTPException(503, "Service unavailable")
 
     # Check if a display name already exists
     existing = (
