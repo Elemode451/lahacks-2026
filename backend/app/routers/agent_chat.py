@@ -312,10 +312,12 @@ async def chat(req: ChatRequest) -> ChatResponse:
     catalog_context = await _load_catalog_context(req.region_scores)
     comparison_context = await _build_comparison_section(req.region_scores)
 
-    full_context = "\n\n".join(
-        part for part in [SYSTEM_PROMPT, song_context, catalog_context, comparison_context] if part
+    # Keep SYSTEM_PROMPT separate so _build_sera_reply can detect when
+    # there is no actual song data (all three context parts are empty).
+    data_context = "\n\n".join(
+        part for part in [song_context, catalog_context, comparison_context] if part
     )
 
-    reply = _build_sera_reply(full_context, req.messages)
+    reply = _build_sera_reply(data_context, req.messages)
 
     return ChatResponse(reply=reply)
