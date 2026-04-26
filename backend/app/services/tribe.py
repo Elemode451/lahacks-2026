@@ -141,7 +141,6 @@ def derive_fingerprints(preds: np.ndarray) -> SongFingerprints:
 
 
 _POLL_INTERVAL_S = 5       # seconds between /status polls
-_POLL_TIMEOUT_S = 1800     # max wait for a single job (30 min — accounts for queue depth)
 _SUBMIT_RETRIES = 3        # retry /submit on transient errors
 
 # In-flight background tasks keyed by cache_key so polling survives
@@ -194,10 +193,11 @@ async def _submit_and_poll(audio_path: Path) -> dict:
     else:
         raise RuntimeError(f"Failed to submit job after {_SUBMIT_RETRIES} attempts: {last_err}")
 
-    # ── Poll ────────────────────────────────────────────────────────────
-    deadline = asyncio.get_event_loop().time() + _POLL_TIMEOUT_S
-    while asyncio.get_event_loop().time() < deadline:
+    # ── Poll (no timeout — waits until job completes or fails) ───────
+    poll_count = 0
+    while True:
         await asyncio.sleep(_POLL_INTERVAL_S)
+        poll_count += 1
         try:
             async with httpx.AsyncClient(timeout=300.0) as client:
                 resp = await client.get(f"{worker}/status/{job_id}")
@@ -222,7 +222,9 @@ async def _submit_and_poll(audio_path: Path) -> dict:
             # Transient network error during poll — keep trying
             logger.warning("Poll error for job %s: %s", job_id, exc)
 
-    raise TimeoutError(f"Job {job_id} did not complete within {_POLL_TIMEOUT_S}s")
+        # Log progress every 60 polls (~5 min) so logs show the job is alive
+        if poll_count % 60 == 0:
+            logger.info("Job %s still waiting (poll #%d)", job_id, poll_count)
 
 
 async def _do_inference(
