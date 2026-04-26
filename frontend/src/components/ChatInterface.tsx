@@ -51,7 +51,13 @@ export default function ChatInterface({
           body: JSON.stringify({
             message: text,
             history,
-            analysis_context: analysisResult ?? null,
+            analysis_context: analysisResult
+              ? Object.fromEntries(
+                  Object.entries(analysisResult).filter(
+                    ([k]) => k !== "combined_fingerprint_b64" && k !== "temporal_fingerprints_b64",
+                  ),
+                )
+              : null,
           }),
         });
 

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.config import settings
+from app.rate_limit import limiter
+from app.utils.auth import require_auth
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/agent", tags=["agent"])
@@ -111,7 +114,12 @@ def _load_catalog_context() -> str:
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def agent_chat(req: ChatRequest):
+@limiter.limit("10/minute")
+async def agent_chat(
+    request: Request,
+    req: ChatRequest,
+    _user_id: str = Depends(require_auth),
+):
     """Send a message to the Sera AI agent and get a response."""
     if not settings.asi1_api_key:
         raise HTTPException(503, "ASI1 API key not configured")
@@ -120,7 +128,7 @@ async def agent_chat(req: ChatRequest):
         import httpx
 
         analysis_ctx = _build_context(req.analysis_context)
-        catalog_ctx = _load_catalog_context()
+        catalog_ctx = await asyncio.to_thread(_load_catalog_context)
         system_content = SYSTEM_PROMPT + analysis_ctx + catalog_ctx
 
         messages = [{"role": "system", "content": system_content}]
