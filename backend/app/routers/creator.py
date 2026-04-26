@@ -93,7 +93,7 @@ async def analyze_creator_track(
         summary = (
             f"This track is predicted to strongly engage "
             f"{', '.join(region_names[:2])} regions. "
-            f"Peak activation occurs at segment {song_fp.peak_index}. {vibe}"
+            f"Peak activation occurs at segment {peak_seg}. {vibe}"
         )
 
         # TODO: find top matches from catalog DB
