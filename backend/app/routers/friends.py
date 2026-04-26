@@ -193,7 +193,7 @@ async def friends_feed(user_id: str = Depends(require_auth)):
     song_keys = list({r["song_key"] for r in interactions.data})
     songs_result = (
         sb.table("song_cache")
-        .select("lookup_key, title, artist, region_scores")
+        .select("lookup_key, title, artist")
         .in_("lookup_key", song_keys)
         .execute()
     )
