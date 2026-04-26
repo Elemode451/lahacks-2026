@@ -382,8 +382,11 @@ def record_recommendations(user_id: str, recommendations: list[dict]) -> None:
 
 def get_previously_recommended(user_id: str) -> set[str]:
     """Get the set of song keys already recommended to this user."""
-    client = _get_client()
-    if client is None:
+    try:
+        from app.services.supabase_client import get_supabase_admin
+        client = get_supabase_admin()
+    except Exception:
+        logger.warning("Supabase admin not configured — skipping recommended lookup")
         return set()
     try:
         resp = (
@@ -401,8 +404,11 @@ def get_previously_recommended(user_id: str) -> set[str]:
 
 def get_recommendation_history(user_id: str) -> list[dict]:
     """Get full recommendation history with metadata for this user."""
-    client = _get_client()
-    if client is None:
+    try:
+        from app.services.supabase_client import get_supabase_admin
+        client = get_supabase_admin()
+    except Exception:
+        logger.warning("Supabase admin not configured — skipping recommendation history")
         return []
     try:
         resp = (
@@ -454,8 +460,11 @@ def get_recommendation_history(user_id: str) -> list[dict]:
 
 def clear_recommendation_history(user_id: str) -> int:
     """Clear all recommendation history for this user. Returns count deleted."""
-    client = _get_client()
-    if client is None:
+    try:
+        from app.services.supabase_client import get_supabase_admin
+        client = get_supabase_admin()
+    except Exception:
+        logger.warning("Supabase admin not configured — skipping recommendation clear")
         return 0
     try:
         resp = (
