@@ -35,6 +35,16 @@ def _get_client():
         return None
 
 
+def _get_admin_client():
+    """Admin client that bypasses RLS — needed for cross-user catalog queries."""
+    try:
+        from app.services.supabase_client import get_supabase_admin
+        return get_supabase_admin()
+    except Exception:
+        logger.warning("Supabase admin not configured — falling back to anon client")
+        return _get_client()
+
+
 def _compress_array(arr: np.ndarray) -> str:
     """Gzip + base64 encode a numpy array."""
     buf = io.BytesIO()
@@ -114,7 +124,7 @@ def get_cached_lightweight(lookup_key: str) -> dict | None:
     Returns a dict with keys: title, artist, region_scores (RegionScores).
     Returns None if the song isn't cached.
     """
-    client = _get_client()
+    client = _get_admin_client()
     if client is None:
         return None
 
@@ -225,7 +235,7 @@ def find_similar_songs(
     Returns (top_n_results, total_catalog_size).
     Each result dict has: lookup_key, title, artist, region_scores, similarity.
     """
-    client = _get_client()
+    client = _get_admin_client()
     if client is None:
         return [], 0
 
