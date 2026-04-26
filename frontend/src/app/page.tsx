@@ -87,6 +87,7 @@ export default function Home() {
 
   // Share state
   const [shareStatus, setShareStatus] = useState<"idle" | "sharing" | "copied">("idle");
+  const [currentAnalysisId, setCurrentAnalysisId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -111,6 +112,7 @@ export default function Home() {
       const detail = await res.json();
       if (detail.payload) {
         setAnalysisResult(detail.payload);
+        setCurrentAnalysisId(detail.analysis_id ?? analysisId);
         setViewState("analysis");
       }
     } catch {
@@ -294,6 +296,7 @@ export default function Home() {
     setRecsLoading(false);
     seenSongIdsRef.current.clear();
     setShareStatus("idle");
+    setCurrentAnalysisId(null);
   };
 
   // Fetch recommendations for a given song identifier
@@ -454,7 +457,7 @@ export default function Home() {
 
   // Share analysis handler
   const handleShareAnalysis = useCallback(async () => {
-    const analysisId = (analysisResult as Record<string, unknown> | null)?.analysis_id as string | undefined;
+    const analysisId = currentAnalysisId ?? ((analysisResult as Record<string, unknown> | null)?.analysis_id as string | undefined);
     if (!analysisId || !session?.access_token) return;
 
     setShareStatus("sharing");
@@ -476,7 +479,7 @@ export default function Home() {
     } catch {
       setShareStatus("idle");
     }
-  }, [analysisResult, session]);
+  }, [currentAnalysisId, analysisResult, session]);
 
   // ── Real API: Creator Mode (file upload) ──
   const handleCreatorAnalyze = useCallback(async () => {
@@ -509,6 +512,7 @@ export default function Home() {
 
       const result = await res.json();
       setAnalysisResult(result);
+      setCurrentAnalysisId(result.analysis_id ?? null);
       setProcessingProgress(1);
       setBrainFlashing(false);
       setViewState("analysis");
@@ -595,6 +599,7 @@ export default function Home() {
               setProcessingStatus(`Error on ${data.song}: ${data.error}`);
             } else if (eventType === "complete") {
               setAnalysisResult(data);
+              setCurrentAnalysisId(data.analysis_id ?? null);
               setBrainFlashing(false);
               setViewState("analysis");
               // Fetch recommendations for the first analyzed song
