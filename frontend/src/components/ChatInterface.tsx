@@ -12,10 +12,12 @@ interface Message {
 export default function ChatInterface({
   overview,
   analysisResult,
+  token,
   className = "",
 }: {
   overview: string;
   analysisResult?: Record<string, unknown> | null;
+  token?: string | null;
   className?: string;
 }) {
   const [messages, setMessages] = useState<Message[]>([
@@ -46,20 +48,24 @@ export default function ChatInterface({
       }));
 
       try {
-        const res = await apiFetch("/agent/chat", {
-          method: "POST",
-          body: JSON.stringify({
-            message: text,
-            history,
-            analysis_context: analysisResult
-              ? Object.fromEntries(
-                  Object.entries(analysisResult).filter(
-                    ([k]) => k !== "combined_fingerprint_b64" && k !== "temporal_fingerprints_b64",
-                  ),
-                )
-              : null,
-          }),
-        });
+        const res = await apiFetch(
+          "/agent/chat",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              message: text,
+              history,
+              analysis_context: analysisResult
+                ? Object.fromEntries(
+                    Object.entries(analysisResult).filter(
+                      ([k]) => k !== "combined_fingerprint_b64" && k !== "temporal_fingerprints_b64",
+                    ),
+                  )
+                : null,
+            }),
+          },
+          token ?? null,
+        );
 
         if (!res.ok) {
           throw new Error(`Agent returned ${res.status}`);
@@ -82,7 +88,7 @@ export default function ChatInterface({
         setLoading(false);
       }
     },
-    [input, loading, messages, analysisResult],
+    [input, loading, messages, analysisResult, token],
   );
 
   return (

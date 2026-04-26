@@ -535,6 +535,7 @@ export default function Home() {
                 <ChatInterface
                   overview={overviewText}
                   analysisResult={analysisResult}
+                  token={session?.access_token ?? null}
                   className="flex-1 min-w-0"
                 />
                 <SongRecommendations className="w-[40%] shrink-0" songs={topMatches} />
