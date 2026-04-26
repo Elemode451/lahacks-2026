@@ -203,7 +203,7 @@ async def analyze_creator_track(
                 None, record_user_interaction, user_id, lookup_key, "uploaded",
             )
 
-        # Persist analysis to Supabase (non-blocking)
+        # Persist analysis to Supabase (awaited so Share button works immediately)
         creator_payload = {
             "song": song.model_dump(),
             "fingerprint_id": song_fp.fingerprint_id,
@@ -214,8 +214,7 @@ async def analyze_creator_track(
             "song_cache_keys": [lookup_key],
             "vibe_description": vibe,
         }
-        asyncio.get_running_loop().run_in_executor(
-            None,
+        await asyncio.to_thread(
             save_analysis,
             analysis_id,
             "creator",
