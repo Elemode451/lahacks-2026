@@ -56,6 +56,10 @@ class ChatRequest(BaseModel):
         default=None,
         description="Current analysis result context (region_scores, song info, vibe, etc.).",
     )
+    lookup_key: str | None = Field(
+        None,
+        description="Cache key of the current song (YouTube URL or 'spotify:<id>'). Used to exclude it from similarity results.",
+    )
 
 
 class ChatResponse(BaseModel):
@@ -110,14 +114,17 @@ def _extract_region_scores(analysis: Any) -> dict[str, float] | None:
     return None
 
 
-def _load_catalog_context(region_scores: dict[str, float] | None) -> str:
+def _load_catalog_context(
+    region_scores: dict[str, float] | None,
+    exclude_key: str | None = None,
+) -> str:
     """Load catalog songs ranked by similarity for LLM context."""
     if not region_scores:
         return ""
 
     try:
         target = RegionScores(**region_scores)
-        results, total = find_similar_songs(target, n=10)
+        results, total = find_similar_songs(target, exclude_key=exclude_key, n=10)
 
         if not results:
             return ""
@@ -144,14 +151,17 @@ def _load_catalog_context(region_scores: dict[str, float] | None) -> str:
         return ""
 
 
-def _build_comparison_section(region_scores: dict[str, float] | None) -> str:
+def _build_comparison_section(
+    region_scores: dict[str, float] | None,
+    exclude_key: str | None = None,
+) -> str:
     """Compare the current song against the top 3 most similar songs."""
     if not region_scores:
         return ""
 
     try:
         target = RegionScores(**region_scores)
-        top3, _ = find_similar_songs(target, n=3)
+        top3, _ = find_similar_songs(target, exclude_key=exclude_key, n=3)
 
         if not top3:
             return ""
@@ -205,8 +215,12 @@ async def agent_chat(
         analysis_ctx = _build_context(req.analysis_context)
         region_scores = _extract_region_scores(req.analysis_context)
 
-        catalog_ctx = await asyncio.to_thread(_load_catalog_context, region_scores)
-        comparison_ctx = await asyncio.to_thread(_build_comparison_section, region_scores)
+        catalog_ctx = await asyncio.to_thread(
+            _load_catalog_context, region_scores, req.lookup_key,
+        )
+        comparison_ctx = await asyncio.to_thread(
+            _build_comparison_section, region_scores, req.lookup_key,
+        )
 
         system_content = SYSTEM_PROMPT + analysis_ctx + catalog_ctx + comparison_ctx
 
