@@ -55,6 +55,7 @@ export default function AudioTimeline({
   const [isPlaying, setIsPlaying] = useState(false);
   const rafRef = useRef<number | null>(null);
   const lastTsRef = useRef<number | null>(null);
+  const fracRef = useRef(0); // fractional accumulator for smooth playback
   const waveRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
 
@@ -70,29 +71,25 @@ export default function AudioTimeline({
       return;
     }
 
+    fracRef.current = controlled ? (currentIndex ?? 0) : localIndex;
+
     const loop = (ts: number) => {
-      const { duration: dur, barCount: bc, controlled: ctrl, currentIndex: ci, onSegmentChange: osc } = tickDepsRef.current;
+      const { duration: dur, barCount: bc, controlled: ctrl, onSegmentChange: osc } = tickDepsRef.current;
       if (lastTsRef.current !== null) {
         const dt = (ts - lastTsRef.current) / 1000;
         const advance = dt / (dur / bc);
+        fracRef.current += advance;
 
-        if (ctrl && osc && ci != null) {
-          const next = ci + advance;
-          if (next >= bc - 1) {
-            setIsPlaying(false);
-            osc(bc - 1);
-          } else {
-            osc(Math.round(next));
-          }
+        if (fracRef.current >= bc - 1) {
+          fracRef.current = bc - 1;
+          setIsPlaying(false);
+        }
+
+        const rounded = Math.round(fracRef.current);
+        if (ctrl && osc) {
+          osc(rounded);
         } else {
-          setLocalIndex((prev) => {
-            const next = prev + advance;
-            if (next >= bc - 1) {
-              setIsPlaying(false);
-              return bc - 1;
-            }
-            return Math.round(next);
-          });
+          setLocalIndex(rounded);
         }
       }
       lastTsRef.current = ts;
@@ -112,6 +109,7 @@ export default function AudioTimeline({
       const { left, width } = el.getBoundingClientRect();
       const ratio = Math.max(0, Math.min(1, (clientX - left) / width));
       const idx = Math.round(ratio * (barCount - 1));
+      fracRef.current = idx;
       if (controlled) {
         onSegmentChange(idx);
       } else {
