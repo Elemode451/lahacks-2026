@@ -101,6 +101,45 @@ CREATE POLICY song_cache_select ON song_cache FOR SELECT USING (true);
 CREATE POLICY song_cache_insert ON song_cache FOR INSERT WITH CHECK (true);
 CREATE POLICY song_cache_update ON song_cache FOR UPDATE USING (true);
 
+-- ── User Recommendations ────────────────────────────────────────────────────
+-- Tracks which songs have been recommended to each user (avoid repeats).
+
+CREATE TABLE IF NOT EXISTS user_recommendations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    song_key TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'brain_similarity',
+    similarity_score FLOAT,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_recs_user ON user_recommendations(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_recs_song ON user_recommendations(song_key);
+CREATE INDEX IF NOT EXISTS idx_user_recs_user_song ON user_recommendations(user_id, song_key);
+
+-- ── User Song Interactions ──────────────────────────────────────────────────
+-- Lightweight join table for collaborative filtering.
+
+CREATE TABLE IF NOT EXISTS user_song_interactions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    song_key TEXT NOT NULL,
+    interaction_type TEXT NOT NULL DEFAULT 'analyzed',
+    created_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE(user_id, song_key, interaction_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_songs_user ON user_song_interactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_songs_song ON user_song_interactions(song_key);
+
+ALTER TABLE user_recommendations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_song_interactions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY user_recs_select ON user_recommendations FOR SELECT USING (user_id = auth.uid());
+CREATE POLICY user_recs_insert ON user_recommendations FOR INSERT WITH CHECK (true);
+CREATE POLICY user_songs_select ON user_song_interactions FOR SELECT USING (true);
+CREATE POLICY user_songs_insert ON user_song_interactions FOR INSERT WITH CHECK (true);
+
 -- Analyses: owner can CRUD, shared analyses are public-read
 CREATE POLICY analyses_select ON analyses FOR SELECT
     USING (owner_id = auth.uid() OR share_slug IS NOT NULL);

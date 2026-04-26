@@ -47,6 +47,10 @@ class SongMatch(BaseModel):
     similarity_score: float
     components: SimilarityComponents | None = None
     matching_regions: list[str] = []
+    source: str = Field(
+        "brain_similarity",
+        description="How this match was found: 'brain_similarity' or 'collaborative'.",
+    )
 
 
 # ── Creator Mode ────────────────────────────────────────────────────────────
@@ -282,12 +286,12 @@ class ClusterAnalyzeResponse(BaseModel):
 
 
 class RecommendRequest(BaseModel):
-    """Request for song recommendations based on brain-response similarity.
+    """Request for song recommendations.
 
     Provide either a YouTube URL or Spotify ID of the target song (must have
-    been analyzed previously via `/clusters/analyze`). The engine compares
-    the target's brain fingerprint against all cached songs and returns the
-    top-N most similar by cortical response.
+    been analyzed previously via `/clusters/analyze`). The engine blends two
+    signals: brain-region cosine similarity and collaborative filtering
+    ("users like you also like"). Previously recommended songs are deprioritized.
     """
 
     youtube_url: str | None = Field(
@@ -304,17 +308,21 @@ class RecommendRequest(BaseModel):
         le=50,
         description="Number of recommendations to return (default 10, max 50).",
     )
+    include_previously_recommended: bool = Field(
+        False,
+        description="If true, include songs that were already recommended to this user (deprioritized).",
+    )
 
 
 class RecommendResponse(BaseModel):
-    """Recommendations ranked by brain-response similarity.
+    """Blended recommendations: brain similarity + collaborative filtering.
 
-    Each recommendation includes a similarity score (0–1) computed as
-    cosine similarity on the 6 brain-region activation values
-    (auditory, superior_temporal, temporo_parietal, inferior_frontal,
-    multisensory, whole_cortex).
+    Each recommendation includes a similarity score and a `source` field
+    indicating whether the match came from brain-region cosine similarity
+    or collaborative filtering ("users like you also like").
 
-    Higher scores mean the song activates similar brain regions.
+    Previously recommended songs are excluded by default (or deprioritized
+    if `include_previously_recommended=true`).
     """
 
     target: SongInfo | None = Field(
@@ -327,7 +335,11 @@ class RecommendResponse(BaseModel):
     )
     recommendations: list[SongMatch] = Field(
         default=[],
-        description="Top-N most similar songs, ranked by brain-response similarity.",
+        description="Blended recommendations ranked by combined score.",
+    )
+    collaborative_available: bool = Field(
+        False,
+        description="Whether collaborative filtering data was available for this user.",
     )
 
 

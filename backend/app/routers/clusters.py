@@ -6,7 +6,7 @@ import asyncio
 import logging
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Header
 
 from app.models.schemas import (
     ClusterAnalyzeRequest,
@@ -18,7 +18,7 @@ from app.models.schemas import (
 from app.services.audio import cleanup_audio, download_youtube_audio
 from app.services.recommendations import compare_songs, final_similarity
 from app.config import settings
-from app.services.song_cache import get_cached, make_lookup_key
+from app.services.song_cache import get_cached, make_lookup_key, record_user_interaction
 from app.services.spotify import get_playlist_tracks, get_track_info, parse_playlist_id, search_youtube_for_track
 from app.services.tribe import (
     SongFingerprints,
@@ -34,8 +34,27 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/clusters", tags=["clusters"])
 
 
+def _try_get_user_id(authorization: str | None) -> str | None:
+    """Extract user ID from the Supabase JWT. Returns None if unauthenticated."""
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization.removeprefix("Bearer ")
+    try:
+        from app.services.supabase_client import get_supabase_admin
+        sb = get_supabase_admin()
+        user = sb.auth.get_user(token)
+        if user is None or user.user is None:
+            return None
+        return user.user.id
+    except Exception:
+        return None
+
+
 @router.post("/analyze", response_model=ClusterAnalyzeResponse)
-async def analyze_cluster(req: ClusterAnalyzeRequest):
+async def analyze_cluster(
+    req: ClusterAnalyzeRequest,
+    authorization: str | None = Header(None),
+):
     """Analyze one or more songs and return aggregate brain activation data.
 
     ## Pipeline
@@ -164,6 +183,13 @@ async def analyze_cluster(req: ClusterAnalyzeRequest):
             )
             songs.append(song_info)
             fingerprints.append(song_fp)
+
+            # Track interaction for collaborative filtering
+            user_id = _try_get_user_id(authorization)
+            if user_id and cache_key:
+                asyncio.get_event_loop().run_in_executor(
+                    None, record_user_interaction, user_id, cache_key,
+                )
 
         except Exception:
             logger.exception(
