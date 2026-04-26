@@ -9,6 +9,8 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -45,17 +47,13 @@ need to explain that unless the creator specifically asks how it works.
 # ── Request / Response schemas ──────────────────────────────────────────────
 
 
-class ChatMessage(BaseModel):
-    role: str
-    content: str = ""
-
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, description="User message text.")
-    history: list[ChatMessage | dict] = Field(
+    history: list[Any] = Field(
         default=[],
         description="Prior conversation turns as [{role, content}, ...].",
     )
-    analysis_context: dict | None = Field(
+    analysis_context: Any = Field(
         default=None,
         description="Current analysis result context (region_scores, song info, vibe, etc.).",
     )
@@ -68,9 +66,9 @@ class ChatResponse(BaseModel):
 # ── Context helpers ─────────────────────────────────────────────────────────
 
 
-def _build_context(analysis: dict | None) -> str:
+def _build_context(analysis: Any) -> str:
     """Build a context block describing the current song's analysis."""
-    if not analysis:
+    if not analysis or not isinstance(analysis, dict):
         return ""
 
     parts: list[str] = ["\n\n## Current Song Analysis"]
@@ -103,9 +101,9 @@ def _build_context(analysis: dict | None) -> str:
     return "\n".join(parts)
 
 
-def _extract_region_scores(analysis: dict | None) -> dict[str, float] | None:
+def _extract_region_scores(analysis: Any) -> dict[str, float] | None:
     """Extract region scores dict from analysis context."""
-    if not analysis:
+    if not analysis or not isinstance(analysis, dict):
         return None
     scores = analysis.get("region_scores") or analysis.get("combined_region_scores")
     if scores and isinstance(scores, dict):
@@ -217,15 +215,13 @@ async def agent_chat(
 
         messages = [{"role": "system", "content": system_content}]
         for turn in req.history[-10:]:
-            if isinstance(turn, ChatMessage):
-                role = turn.role
-                content = turn.content
-            else:
-                role = turn.get("role", "user")
-                content = turn.get("content", "")
+            if not isinstance(turn, dict):
+                continue
+            role = str(turn.get("role", "user"))
+            content = str(turn.get("content", ""))
             if role not in ("user", "assistant"):
                 role = "user"
-            messages.append({"role": role, "content": content or ""})
+            messages.append({"role": role, "content": content})
         messages.append({"role": "user", "content": req.message})
 
         async with httpx.AsyncClient(timeout=30) as client:

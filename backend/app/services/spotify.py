@@ -156,7 +156,9 @@ async def _scrape_playlist_tracks(
                 continue
             resp.raise_for_status()
             html = resp.text
-            track_ids = list(dict.fromkeys(re.findall(r'/track/([a-zA-Z0-9]{22})', html)))
+            track_ids = list(dict.fromkeys(
+                re.findall(r'(?:spotify:track:|/track/)([a-zA-Z0-9]{22})', html)
+            ))
             if track_ids:
                 break
         except Exception:
