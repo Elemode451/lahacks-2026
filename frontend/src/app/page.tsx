@@ -39,6 +39,9 @@ const KeyInfoDisplay = dynamic(() => import("@/components/KeyInfo"), {
 const EmotionalProfile = dynamic(() => import("@/components/EmotionalProfile"), {
   ssr: false,
 });
+const FriendsActivity = dynamic(() => import("@/components/FriendsActivity"), {
+  ssr: false,
+});
 
 type ViewState = "intro" | "importing" | "analyzing" | "processing" | "analysis";
 type ImportType = "file" | "spotify" | "youtube";
@@ -480,6 +483,24 @@ export default function Home() {
       setShareStatus("idle");
     }
   }, [analysisResult, session]);
+
+  // Handle clicking a friend's song in the feed
+  const handleFriendSongClick = useCallback(
+    (songKey: string, _title: string, _artist: string) => {
+      const isSpotify = songKey.startsWith("spotify:");
+      if (isSpotify) {
+        const spotifyId = songKey.replace("spotify:", "");
+        const url = `https://open.spotify.com/track/${spotifyId}`;
+        setSongs([url]);
+        setImportType("spotify");
+      } else {
+        setSongs([songKey]);
+        setImportType("youtube");
+      }
+      setViewState("importing");
+    },
+    [],
+  );
 
   // ── Real API: Creator Mode (file upload) ──
   const handleCreatorAnalyze = useCallback(async () => {
@@ -1111,6 +1132,31 @@ export default function Home() {
             >
               {processingStatus}
             </motion.p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Friends Activity — visible on intro before import */}
+      <AnimatePresence>
+        {viewState === "intro" && (
+          <motion.div
+            className="absolute z-20"
+            style={{
+              right: "clamp(32px, 4vw, 64px)",
+              top: TOPBAR_H + 24,
+              width: "clamp(260px, 22vw, 340px)",
+            }}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8, transition: { duration: 0.2 } }}
+            transition={{ duration: 0.5, delay: 0.6 }}
+          >
+            <div className="bg-[rgba(255,253,245,0.85)] backdrop-blur-xl border border-[rgba(13,59,102,0.06)] rounded-3xl p-4 shadow-[0_4px_24px_rgba(13,59,102,0.04)]">
+              <FriendsActivity
+                token={session?.access_token ?? null}
+                onSongClick={handleFriendSongClick}
+              />
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

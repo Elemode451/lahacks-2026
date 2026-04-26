@@ -546,3 +546,29 @@ class SpotifyTokenData(BaseModel):
     refresh_token: str | None = None
     expires_in: int
     scope: str
+
+
+# ── Friends ─────────────────────────────────────────────────────────────────
+
+
+class FriendAddRequest(BaseModel):
+    """Add a friend by user ID or display name (at least one required)."""
+    friend_id: str | None = Field(None, description="Supabase user UUID of the friend.")
+    display_name: str | None = Field(None, description="Display name to search for.")
+
+
+class FriendItem(BaseModel):
+    id: str
+    friend_id: str
+    display_name: str = ""
+    created_at: str | None = None
+
+
+class FriendFeedItem(BaseModel):
+    friend_id: str
+    friend_display_name: str = ""
+    song_key: str
+    title: str = "Unknown"
+    artist: str = "Unknown"
+    interaction_type: str = "analyzed"
+    created_at: str | None = None
