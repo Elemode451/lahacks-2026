@@ -244,7 +244,7 @@ export default function Home() {
       panelY: TOPBAR_H + (contentH - Math.min(contentH * 0.88, 650)) / 2,
       friendsPillW: 140,
       friendsPillH: 50,
-      friendsPillX: vw * 0.3 - 140,
+      friendsPillX: vw * 0.5 - 70,
       friendsPillY: TOPBAR_H - 25,
       friendsPanelW: Math.min(vw * 0.42, 480),
       friendsPanelH: Math.min(contentH * 0.78, 550),
