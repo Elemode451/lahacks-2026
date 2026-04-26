@@ -651,7 +651,26 @@ export default function Home() {
               setAnalysisResult(data);
               setBrainFlashing(false);
               setViewState("analysis");
-              // Fetch recommendations for the first analyzed song
+
+              // Populate recommendations from top_matches if available (works even with small catalog)
+              const topMatches = data.top_matches as Array<{
+                song: { song_id: string; title: string; artist: string };
+                similarity_score: number;
+                source?: string;
+              }> | undefined;
+              if (topMatches?.length) {
+                setRecommendations(
+                  topMatches.map((m: { song: { song_id: string; title: string; artist: string }; similarity_score: number; source?: string }) => ({
+                    song_id: m.song.song_id,
+                    title: m.song.title,
+                    artist: m.song.artist,
+                    similarity_score: m.similarity_score,
+                    source: m.source ?? "brain_similarity",
+                  })),
+                );
+              }
+
+              // Also fetch recommendations via API (may find additional matches)
               const analyzedSongs = data.songs as Array<{ song_id?: string; spotify_id?: string }> | undefined;
               if (analyzedSongs?.length) {
                 const first = analyzedSongs[0];

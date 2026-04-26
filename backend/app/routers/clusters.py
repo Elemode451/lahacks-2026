@@ -19,12 +19,13 @@ from app.models.schemas import (
     KeyInfo,
     PairwiseSimilarity,
     SongInfo,
+    SongMatch,
 )
 from app.services.audio import cleanup_audio, download_youtube_audio
 from app.services.emotions import map_region_scores_to_emotions
 from app.services.recommendations import compare_songs, final_similarity
 from app.config import settings
-from app.services.song_cache import get_cached, make_lookup_key, record_user_interaction, save_analysis
+from app.services.song_cache import find_similar_songs, get_cached, make_lookup_key, record_user_interaction, save_analysis
 from app.services.spotify import get_audio_features_batch, get_playlist_tracks, get_track_info, parse_playlist_id, search_youtube_for_track
 from app.services.music_theory import compare_keys, key_name, mood_for_key
 from app.services.tribe import (
@@ -619,6 +620,31 @@ async def analyze_cluster_stream(
             except Exception:
                 logger.warning("Analysis persistence failed for %s", analysis_id)
 
+            # Find similar songs in the catalog for recommendations
+            top_matches: list[SongMatch] = []
+            try:
+                exclude = set(song_cache_keys)
+                similar, _ = await asyncio.to_thread(
+                    find_similar_songs,
+                    target_scores=combined.region_scores,
+                    exclude_keys=exclude,
+                    n=10,
+                )
+                top_matches = [
+                    SongMatch(
+                        song=SongInfo(
+                            song_id=r["lookup_key"],
+                            title=r["title"],
+                            artist=r["artist"],
+                        ),
+                        similarity_score=r["similarity"],
+                        source="brain_similarity",
+                    )
+                    for r in similar
+                ]
+            except Exception:
+                logger.warning("Failed to find similar songs for listener analysis")
+
             response = ClusterAnalyzeResponse(
                 analysis_id=analysis_id,
                 songs=songs,
@@ -633,6 +659,7 @@ async def analyze_cluster_stream(
                 summary=summary,
                 saved=bool(saved),
                 emotional_profile=emotional_profile,
+                top_matches=top_matches,
             )
 
             yield _sse_event("complete", response.model_dump())
