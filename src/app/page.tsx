@@ -316,13 +316,13 @@ export default function Home() {
                                   ? "Paste Spotify track/playlist link..."
                                   : "Paste YouTube video URL..."
                               }
-                              className="w-full bg-[rgba(249,87,56,0.08)] border-[1.5px] border-[rgba(249,87,56,0.25)] focus:border-[#f95738] rounded-full py-3 px-6 pr-14 text-[#f95738] placeholder-[rgba(249,87,56,0.4)] outline-none text-[clamp(12px,1vw,14px)] transition-colors"
+                              className="w-full bg-[rgba(249,87,56,0.06)] border border-[rgba(249,87,56,0.2)] focus:border-[#f95738] rounded-full py-[clamp(12px,1.6vh,18px)] px-[clamp(18px,2vw,28px)] pr-[clamp(40px,4vw,56px)] text-[#f95738] placeholder-[rgba(249,87,56,0.35)] outline-none text-[clamp(12px,1vw,14px)] transition-colors"
                             />
                             <button
                               type="submit"
-                              className="absolute right-2.5 bg-[#f95738] text-white w-8 h-8 rounded-full hover:bg-[#d84b31] transition-colors flex items-center justify-center"
+                              className="absolute right-[clamp(8px,1vw,14px)] bg-[#f95738] text-white w-[clamp(24px,2.2vw,30px)] h-[clamp(24px,2.2vw,30px)] rounded-full hover:bg-[#d84b31] transition-colors flex items-center justify-center"
                             >
-                              <Send className="size-3.5 text-white" />
+                              <Send className="size-3 text-white" />
                             </button>
                           </div>
                         </form>
