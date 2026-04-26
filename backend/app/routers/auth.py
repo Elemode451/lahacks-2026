@@ -311,31 +311,14 @@ async def _upsert_spotify_user(
     """Find or create a Supabase user for the given Spotify account.
 
     Returns ``(supabase_access_token, user_id)``.
-    """
-    # Look up user by email via the auth.users table (avoids paginated list_users)
-    lookup = (
-        sb.table("users")
-        .select("id, raw_user_meta_data")
-        .eq("email", email)
-        .maybe_single()
-        .execute()
-    )
 
-    if lookup.data:
-        user_id = lookup.data["id"]
-        existing_meta = lookup.data.get("raw_user_meta_data") or {}
-        sb.auth.admin.update_user_by_id(
-            user_id,
-            {
-                "user_metadata": {
-                    **existing_meta,
-                    "spotify_user_id": spotify_user_id,
-                    "provider": "spotify",
-                }
-            },
-        )
-    else:
-        # Create new user with a random password (OAuth-only account)
+    Strategy: try to create first; if the email already exists, catch the
+    error and update instead.  This avoids querying ``auth.users`` via
+    PostgREST (which lives in the ``auth`` schema, not ``public``).
+    """
+    user_id: str | None = None
+
+    try:
         random_password = secrets.token_urlsafe(32)
         result = sb.auth.admin.create_user(
             {
@@ -358,8 +341,27 @@ async def _upsert_spotify_user(
             sb.table("profiles").upsert(
                 {"user_id": user_id, "display_name": display_name}
             ).execute()
+    except HTTPException:
+        raise
+    except Exception:
+        # User already exists — look up via admin API and update metadata
+        logger.info("User %s already exists, linking Spotify account", email)
+        existing = _find_user_by_email(sb, email)
+        if existing is None:
+            raise HTTPException(500, "Failed to locate existing user account")
+        user_id = existing.id
+        sb.auth.admin.update_user_by_id(
+            user_id,
+            {
+                "user_metadata": {
+                    **(existing.user_metadata or {}),
+                    "spotify_user_id": spotify_user_id,
+                    "provider": "spotify",
+                }
+            },
+        )
 
-    # Generate a session link to get an access token
+    # Generate a session via magic link OTP verification
     link_resp = sb.auth.admin.generate_link(
         {
             "type": "magiclink",
@@ -367,34 +369,41 @@ async def _upsert_spotify_user(
         }
     )
 
-    # Use an ephemeral client to sign in with the magic link token
     ephemeral = _ephemeral_client()
     if hasattr(link_resp, "properties") and hasattr(
         link_resp.properties, "hashed_token"
     ):
-        try:
-            verify_resp = ephemeral.auth.verify_otp(
-                {
-                    "token_hash": link_resp.properties.hashed_token,
-                    "type": "magiclink",
-                }
-            )
-            if verify_resp.session:
-                return verify_resp.session.access_token, user_id
-        except Exception:
-            logger.exception("OTP verification failed, falling back to generate_link")
-
-    # Fallback: return the link token if direct OTP verify fails
-    if hasattr(link_resp, "properties") and hasattr(
-        link_resp.properties, "action_link"
-    ):
-        action_link = link_resp.properties.action_link
-        # Extract the token from the action link
-        if "token=" in action_link:
-            token = action_link.split("token=")[1].split("&")[0]
-            return token, user_id
+        verify_resp = ephemeral.auth.verify_otp(
+            {
+                "token_hash": link_resp.properties.hashed_token,
+                "type": "magiclink",
+            }
+        )
+        if verify_resp.session:
+            return verify_resp.session.access_token, user_id
 
     raise HTTPException(500, "Failed to generate authentication session")
+
+
+def _find_user_by_email(sb, email: str):
+    """Find a Supabase auth user by email using paginated admin list.
+
+    Iterates through all pages to handle large user bases.
+    Returns the user object or ``None``.
+    """
+    page = 1
+    per_page = 50
+    while True:
+        users = sb.auth.admin.list_users(page=page, per_page=per_page)
+        if not users:
+            break
+        for u in users:
+            if hasattr(u, "email") and u.email == email:
+                return u
+        if len(users) < per_page:
+            break
+        page += 1
+    return None
 
 
 @router.post("/spotify/refresh", response_model=SpotifyTokenData)
