@@ -221,6 +221,14 @@ async def spotify_oauth_start() -> OAuthStartResponse:
     return OAuthStartResponse(url=url)
 
 
+def _error_redirect(error_code: str) -> RedirectResponse:
+    """Redirect to the frontend error page with the given error code."""
+    return RedirectResponse(
+        url=f"{settings.frontend_url}/auth/callback"
+        f"?error={quote(error_code)}&provider=spotify"
+    )
+
+
 @router.get("/spotify/callback")
 async def spotify_oauth_callback(
     state: str,
@@ -229,13 +237,9 @@ async def spotify_oauth_callback(
 ) -> RedirectResponse:
     """Handle the Spotify OAuth redirect: exchange code, upsert user, redirect."""
     if error or not code:
-        safe_error = quote(error or "access_denied")
-        return RedirectResponse(
-            url=f"{settings.frontend_url}/auth/callback"
-            f"?error={safe_error}&provider=spotify"
-        )
+        return _error_redirect(error or "access_denied")
     if not _verify_state(state):
-        raise HTTPException(400, "Invalid or expired OAuth state")
+        return _error_redirect("invalid_state")
     try:
         # 1. Exchange authorization code for tokens
         async with httpx.AsyncClient() as client:
@@ -253,7 +257,7 @@ async def spotify_oauth_callback(
             )
         if token_resp.status_code != 200:
             logger.error("Spotify token exchange failed: %s", token_resp.text)
-            raise HTTPException(400, "Failed to exchange Spotify authorization code")
+            return _error_redirect("token_exchange_failed")
 
         token_data = token_resp.json()
         access_token = token_data["access_token"]
@@ -267,7 +271,7 @@ async def spotify_oauth_callback(
             )
         if me_resp.status_code != 200:
             logger.error("Spotify /me request failed: %s", me_resp.text)
-            raise HTTPException(400, "Failed to fetch Spotify user profile")
+            return _error_redirect("profile_fetch_failed")
 
         spotify_profile = me_resp.json()
         spotify_email = spotify_profile.get("email")
@@ -275,11 +279,7 @@ async def spotify_oauth_callback(
         display_name = spotify_profile.get("display_name", "")
 
         if not spotify_email:
-            raise HTTPException(
-                400,
-                "Spotify account does not have an email address. "
-                "Please ensure your Spotify account has a verified email.",
-            )
+            return _error_redirect("no_email")
 
         # 3. Upsert user in Supabase
         sb = get_supabase_admin()
@@ -311,11 +311,9 @@ async def spotify_oauth_callback(
         )
         return RedirectResponse(url=redirect_url)
 
-    except HTTPException:
-        raise
     except Exception:
         logger.exception("Spotify OAuth callback error")
-        raise HTTPException(500, "Spotify authentication failed")
+        return _error_redirect("auth_failed")
 
 
 async def _upsert_spotify_user(
