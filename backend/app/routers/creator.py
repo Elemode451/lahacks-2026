@@ -85,9 +85,11 @@ async def analyze_creator_track(
                 logger.warning("Failed to fetch audio features for %s", spotify_id)
 
         song_id = f"creator_{uuid.uuid4().hex[:12]}"
+        lookup_key = _upload_lookup_key(audio.filename or "upload.wav", file_bytes)
         song = SongInfo(
             song_id=song_id,
             spotify_id=spotify_id,
+            lookup_key=lookup_key,
             title=title,
             artist=artist,
             key_info=ki,
@@ -150,7 +152,6 @@ async def analyze_creator_track(
         )
 
         # Persist to song_cache so the recommendation engine can find it
-        lookup_key = _upload_lookup_key(audio.filename or "upload.wav", file_bytes)
         try:
             await asyncio.to_thread(
                 store_cached,
