@@ -71,6 +71,12 @@ class CreatorAnalyzeResponse(BaseModel):
     frames: list[str] = []
     top_matches: list[SongMatch] = []
     summary: str = ""
+    # Fields matching ClusterAnalyzeResponse for frontend parity
+    combined_fingerprint_b64: str = ""
+    temporal_fingerprints_b64: str = ""
+    combined_region_scores: RegionScores = Field(default_factory=RegionScores)
+    combined_timeline: list[dict[str, float]] = []
+    vibe_description: str = ""
 
 
 # ── Listener / Cluster Mode ────────────────────────────────────────────────
