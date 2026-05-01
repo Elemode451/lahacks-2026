@@ -3,7 +3,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import dynamic from "next/dynamic";
-import { X, Send, LogOut, Clock, Music, Brain, MessageCircle, Radio } from "lucide-react";
+import { X, Send, LogOut, Brain, Music } from "lucide-react";
 import {
   SeratoneLogo,
   SoundBarsIcon,
@@ -33,12 +33,6 @@ const ChatInterface = dynamic(() => import("@/components/ChatInterface"), {
 const SongRecommendations = dynamic(() => import("@/components/SongRecommendations"), {
   ssr: false,
 });
-const KeyInfoDisplay = dynamic(() => import("@/components/KeyInfo"), {
-  ssr: false,
-});
-const EmotionalProfile = dynamic(() => import("@/components/EmotionalProfile"), {
-  ssr: false,
-});
 
 type ViewState = "intro" | "importing" | "analyzing" | "processing" | "analysis";
 type ImportType = "file" | "spotify" | "youtube";
@@ -62,6 +56,8 @@ export default function Home() {
   const eventSourceRef = useRef<EventSource | null>(null);
   const [vw, setVw] = useState(1280);
   const [vh, setVh] = useState(832);
+  const [layoutReady, setLayoutReady] = useState(false);
+  const [isLeavingForLogin, setIsLeavingForLogin] = useState(false);
 
   // Processing state for real API calls
   const [processingStatus, setProcessingStatus] = useState("");
@@ -135,6 +131,7 @@ export default function Home() {
     const update = () => {
       setVw(window.innerWidth);
       setVh(window.innerHeight);
+      setLayoutReady(true);
     };
     update();
     window.addEventListener("resize", update);
@@ -204,28 +201,15 @@ export default function Home() {
 
   const peakSegment = (analysisResult?.peak_segment as number | undefined) ?? undefined;
 
-  const topMatches = useMemo(() => {
-    if (!analysisResult) return undefined;
-    const matches = analysisResult.top_matches as Array<{
-      song: { title: string; artist: string };
-      similarity_score: number;
-      matching_regions?: string[];
-    }> | undefined;
-    if (!matches || matches.length === 0) return undefined;
-    return matches.map((m) => ({
-      title: m.song.title,
-      artist: m.song.artist,
-      tag: m.matching_regions?.[0]?.replace(/_/g, " ") ?? `${Math.round(m.similarity_score * 100)}% match`,
-    }));
-  }, [analysisResult]);
-
   const layout = useMemo(() => {
     const contentH = vh - TOPBAR_H;
     const halfW = vw * 0.5;
-    const brainSize = Math.min(contentH * 0.95, halfW);
+    const brainSize = Math.min(contentH * 1.04, vw * 0.64);
     return {
       brainW: brainSize,
       brainH: brainSize,
+      brainIntroScale: 1,
+      brainAnalysisScale: 1,
       brainIntroX: (vw - brainSize) / 2,
       brainAnalysisX: (halfW - brainSize) / 2,
       brainTop: TOPBAR_H + (contentH - brainSize) / 2,
@@ -291,6 +275,16 @@ export default function Home() {
     setRecommendations([]);
     setRecsLoading(false);
     seenSongIdsRef.current.clear();
+  };
+
+  const handleSignOut = async () => {
+    setIsLeavingForLogin(true);
+    setColorMode("orange");
+    cancelAnalyzeTimeout();
+    eventSourceRef.current?.close();
+    eventSourceRef.current = null;
+    await new Promise((resolve) => setTimeout(resolve, 650));
+    await signOut();
   };
 
   // Fetch recommendations for a given song identifier
@@ -394,22 +388,6 @@ export default function Home() {
     },
     [],
   );
-
-  // Refresh recommendations
-  const handleRefreshRecommendations = useCallback(() => {
-    const result = analysisResult;
-    if (!result) return;
-    const analyzedSongs = (result as Record<string, unknown>).songs as Array<{ song_id?: string; spotify_id?: string }> | undefined;
-    if (analyzedSongs?.length) {
-      const first = analyzedSongs[0];
-      const cacheKey = first.spotify_id
-        ? `spotify:${first.spotify_id}`
-        : first.song_id;
-      if (cacheKey) {
-        fetchRecommendations(cacheKey);
-      }
-    }
-  }, [analysisResult, fetchRecommendations]);
 
   // ── Real API: Creator Mode (file upload) ──
   const handleCreatorAnalyze = useCallback(async () => {
@@ -617,195 +595,187 @@ export default function Home() {
     return text;
   }, [analysisResult]);
 
+  const topbarHidden = viewState === "analysis" || isLeavingForLogin;
+  const topbarContentVisible = layoutReady && !topbarHidden;
+  const logoVisible = layoutReady && !isLeavingForLogin;
+
   if (loading || !user) {
     return <div className="h-full" />;
   }
 
   return (
     <div className="relative w-screen h-screen overflow-hidden font-sans selection:bg-[#f95738] selection:text-white">
-      {/* Topbar Background — fades in on mount, slides up on analysis */}
+      {/* Topbar Background — slides in on mount, slides up on analysis/sign out */}
       <motion.div
         className="absolute bg-[#fffdf5] left-0 top-0 w-full z-0"
         style={{ height: TOPBAR_H }}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1, y: viewState === "analysis" ? -TOPBAR_H : 0 }}
+        initial={{ y: -TOPBAR_H }}
+        animate={{ y: topbarHidden ? -TOPBAR_H : 0 }}
         transition={{
-          opacity: { duration: 0.5, ease: "easeOut", delay: 0.1 },
-          y: { duration: 0.8, ease: panelEase },
+          duration: 0.68,
+          ease: panelEase,
         }}
       />
 
       {/* 3D Brain — slides left on analysis */}
-      <motion.div
-        className={`absolute ${viewState !== "analysis" ? "pointer-events-none" : ""} z-10 ${brainFlashing ? "brain-flash" : ""}`}
-        style={{ width: layout.brainW, height: layout.brainH, top: layout.brainTop }}
-        initial={{ opacity: 0, x: layout.brainIntroX }}
-        animate={{
-          opacity: 1,
-          x: viewState === "analysis" ? layout.brainAnalysisX : layout.brainIntroX,
-        }}
-        transition={{
-          opacity: { duration: 0.6, ease: "easeOut", delay: 0.1 },
-          x: { duration: 0.8, ease: panelEase },
-        }}
-      >
-        <BrainScene
-          className="w-full h-full"
-          flashing={brainFlashing}
-          interactive={viewState === "analysis"}
-          fingerprint={fingerprint}
-          temporalData={temporalData}
-          segmentIndex={currentSegment}
-        />
-      </motion.div>
+      {layoutReady && (
+        <motion.div
+          className={`absolute z-10 ${brainFlashing ? "brain-flash" : ""}`}
+          style={{
+            width: layout.brainW,
+            height: layout.brainH,
+            top: layout.brainTop,
+            transformOrigin: "center center",
+          }}
+          initial={{ opacity: 0, x: layout.brainIntroX, scale: layout.brainIntroScale }}
+          animate={{
+            opacity: 1,
+            x: viewState === "analysis" ? layout.brainAnalysisX : layout.brainIntroX,
+            scale: viewState === "analysis" ? layout.brainAnalysisScale : layout.brainIntroScale,
+          }}
+          transition={{
+            opacity: { duration: 0.6, ease: "easeOut", delay: 0.1 },
+            x: { duration: 0.8, ease: panelEase },
+            scale: { duration: 0.8, ease: panelEase },
+          }}
+        >
+          <BrainScene
+            className="w-full h-full"
+            flashing={brainFlashing}
+            interactive
+            autoRotate={viewState !== "analysis"}
+            fingerprint={fingerprint}
+            temporalData={temporalData}
+            segmentIndex={currentSegment}
+          />
+        </motion.div>
+      )}
 
       {/* Logo Group — spans left half, centered horizontally, stationary */}
       <motion.div
         className="absolute z-20 flex items-end justify-center cursor-pointer hover:opacity-80"
         style={{ left: 0, width: "50vw", top: TOPBAR_H - 41 }}
         initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.5, ease: "easeOut", delay: 0.1 }}
+        animate={{ opacity: logoVisible ? 1 : 0 }}
+        transition={{
+          duration: 0.38,
+          ease: "easeOut",
+          delay: topbarContentVisible ? 0.62 : 0,
+        }}
         onClick={resetState}
       >
         <SeratoneLogo className="h-[41px] w-auto" />
       </motion.div>
 
       {/* User info + sign out */}
-      <div
+      <motion.div
         className="absolute top-0 right-8 z-20 flex items-center gap-3"
         style={{ height: TOPBAR_H }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: topbarContentVisible ? 1 : 0 }}
+        transition={{
+          duration: 0.38,
+          ease: "easeOut",
+          delay: topbarContentVisible ? 0.66 : 0,
+        }}
       >
         <span className="text-[#0d3b66]/45 text-sm font-medium">{displayName}</span>
         <button
-          onClick={signOut}
+          onClick={handleSignOut}
+          disabled={isLeavingForLogin}
           className="text-[#0d3b66]/25 hover:text-[#f95738] hover:bg-[rgba(249,87,56,0.06)] transition-all duration-200 cursor-pointer p-2 rounded-xl"
           title="Sign out"
         >
           <LogOut className="w-4 h-4" />
         </button>
-      </div>
+      </motion.div>
 
-      {/* Right Section (Analysis View) — slides in from right */}
-      <motion.div
-        className="absolute bg-[#fffdf5] top-0 z-10"
-        style={{ width: layout.rightPanelW, height: vh }}
-        initial={false}
-        animate={{
-          x: viewState === "analysis" ? vw - layout.rightPanelW : vw,
-        }}
-        transition={{ duration: 0.8, ease: panelEase }}
-      >
-        <AnimatePresence>
-          {viewState === "analysis" && (
+      {/* Right Section (Analysis View) — only mounts for analysis so intro loads fade-only */}
+      <AnimatePresence initial={false}>
+        {viewState === "analysis" && (
+          <motion.div
+            className="absolute inset-y-0 right-0 bg-[#fffdf5] z-10"
+            style={{ width: layout.rightPanelW }}
+            initial={{ x: "100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "100%" }}
+            transition={{ duration: 0.8, ease: panelEase }}
+          >
             <motion.div
-              className="absolute inset-0 px-8 pt-6 pb-6 flex flex-col gap-4 overflow-y-auto custom-scrollbar"
+              className="absolute inset-0 overflow-y-auto custom-scrollbar"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.6, delay: 0.4 }}
             >
-              {/* Timeline Section */}
-              <motion.div
-                className="glass-card px-6 py-5 shrink-0"
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.5, ease: panelEase }}
-              >
-                <div className="flex items-center gap-2 mb-3">
-                  <Radio className="w-3.5 h-3.5 text-[#0d3b66]/40" />
-                  <h3 className="section-header">Timeline</h3>
-                </div>
-                <AudioTimeline
-                  duration={214}
-                  segmentActivations={timelineActivations}
-                  peakIndex={peakSegment}
-                  currentIndex={currentSegment}
-                  onSegmentChange={setCurrentSegment}
-                  className="max-w-[320px] mx-auto w-full"
-                />
-              </motion.div>
-
-              {/* Radar Chart Section */}
-              <motion.div
-                className="glass-card px-6 py-5 shrink-0"
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.6, ease: panelEase }}
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  <Brain className="w-3.5 h-3.5 text-[#0d3b66]/40" />
-                  <h3 className="section-header">Cortical Profile</h3>
-                </div>
-                <div className="flex justify-center">
-                  <MusicRadarChart data={radarData} className="w-full max-w-[340px]" style={{ height: "min(220px, 26vh)" }} />
-                </div>
-              </motion.div>
-
-              <EmotionalProfile
-                emotionalProfile={
-                  analysisResult?.emotional_profile as
-                    | {
-                        emotions?: {
-                          name: string;
-                          intensity: number;
-                          level: string;
-                          description: string;
-                        }[];
-                        dominant_emotions?: string[];
-                        summary?: string;
-                      }
-                    | null
-                    | undefined
-                }
-              />
-
-              {/* Key Info */}
-              <KeyInfoDisplay
-                analysisResult={analysisResult}
-                className="mt-3 px-1"
-              />
-
-              {/* Chat + Song Recommendations */}
-              <motion.div
-                className="flex-1 min-h-0 flex gap-4"
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.7, ease: panelEase }}
-              >
-                {/* Chat Section */}
-                <div className="glass-card px-5 py-4 flex-1 min-w-0 flex flex-col">
-                  <div className="flex items-center gap-2 mb-3">
-                    <MessageCircle className="w-3.5 h-3.5 text-[#0d3b66]/40" />
-                    <h3 className="section-header">Ask Sera</h3>
-                  </div>
-                  <ChatInterface
-                    overview={overviewText}
-                    analysisResult={analysisResult}
-                    token={session?.access_token ?? null}
-                    className="flex-1 min-w-0"
+              <div className="min-h-full flex flex-col px-[clamp(26px,3vw,42px)] pt-[clamp(34px,4vh,54px)] pb-[clamp(30px,3vh,46px)]">
+                <motion.section
+                  className="mx-auto flex w-full max-w-[520px] shrink-0 justify-center"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.5, delay: 0.5, ease: panelEase }}
+                >
+                  <AudioTimeline
+                    duration={214}
+                    segmentActivations={timelineActivations}
+                    peakIndex={peakSegment}
+                    currentIndex={currentSegment}
+                    onSegmentChange={setCurrentSegment}
+                    className="w-full max-w-[470px]"
                   />
-                </div>
+                </motion.section>
 
-                {/* Recommendations Section */}
-                <div className="glass-card px-5 py-4 w-[40%] shrink-0 flex flex-col">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Music className="w-3.5 h-3.5 text-[#0d3b66]/40" />
-                    <h3 className="section-header">Discover</h3>
+                <motion.section
+                  className="mx-auto mt-[clamp(52px,7vh,88px)] flex w-full max-w-[430px] shrink-0 flex-col items-center"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.5, delay: 0.6, ease: panelEase }}
+                >
+                  <div className="flex w-full justify-center">
+                    <MusicRadarChart
+                      data={radarData}
+                      className="w-full max-w-[392px]"
+                      style={{ height: "min(296px, 32vh)" }}
+                    />
                   </div>
-                  <SongRecommendations
-                    className="flex-1 min-h-0"
-                    recommendations={recommendations}
-                    loading={recsLoading}
-                    onSongClick={handleRecommendedSongClick}
-                    onRefresh={handleRefreshRecommendations}
-                  />
-                </div>
-              </motion.div>
+                </motion.section>
+
+                <motion.section
+                  className="mx-auto mt-[clamp(118px,16vh,180px)] grid w-full max-w-[700px] flex-1 min-h-[420px] grid-cols-1 gap-[clamp(24px,3vw,40px)] md:grid-cols-[minmax(0,1fr)_176px] md:items-end"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.5, delay: 0.7, ease: panelEase }}
+                >
+                  <div className="flex min-h-0 max-w-[520px] flex-col justify-between gap-8">
+                    <p className="pl-4 text-[11px] font-medium tracking-[-0.02em] text-[#0d3b66]/42">
+                      overview
+                    </p>
+                    <div className="flex min-h-0 flex-1 flex-col justify-end">
+                      <ChatInterface
+                        overview={overviewText}
+                        analysisResult={analysisResult}
+                        token={session?.access_token ?? null}
+                        className="analysis-chat flex-1 min-h-0 max-w-[520px]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex min-h-0 flex-col items-center justify-center pb-[clamp(10px,1.5vh,16px)]">
+                    <div className="flex w-full max-w-[176px] min-h-[176px] items-center justify-center">
+                      <SongRecommendations
+                        className="w-full min-h-0"
+                        recommendations={recommendations}
+                        loading={recsLoading}
+                        onSongClick={handleRecommendedSongClick}
+                      />
+                    </div>
+                  </div>
+                </motion.section>
+              </div>
             </motion.div>
-          )}
-        </AnimatePresence>
-      </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Click Outside Overlay — dismiss importing */}
       {viewState === "importing" && (
@@ -902,17 +872,25 @@ export default function Home() {
 
       {/* Import Button / Panel — spring expansion */}
       <AnimatePresence>
-        {(viewState === "intro" || viewState === "importing") && (
+        {layoutReady && !isLeavingForLogin && (viewState === "intro" || viewState === "importing") && (
           <motion.div
             className="absolute bg-[rgba(249,87,56,0.32)] overflow-hidden z-20 shadow-sm backdrop-blur-[40px] border border-[rgba(249,87,56,0.5)]"
-            initial={false}
+            initial={{
+              width: viewState === "intro" ? layout.pillW : layout.panelW,
+              height: viewState === "intro" ? layout.pillH : layout.panelH,
+              x: viewState === "intro" ? layout.pillX : layout.panelX,
+              y: viewState === "intro" ? layout.pillY : layout.panelY,
+              borderRadius: viewState === "intro" ? 100 : 50,
+              opacity: 0,
+              scale: 1,
+            }}
             animate={{
               width: viewState === "intro" ? layout.pillW : layout.panelW,
               height: viewState === "intro" ? layout.pillH : layout.panelH,
               x: viewState === "intro" ? layout.pillX : layout.panelX,
               y: viewState === "intro" ? layout.pillY : layout.panelY,
               borderRadius: viewState === "intro" ? 100 : 50,
-              opacity: 1,
+              opacity: topbarContentVisible ? 1 : 0,
               scale: 1,
             }}
             exit={{
@@ -921,10 +899,17 @@ export default function Home() {
               transition: { duration: 0.4 },
             }}
             transition={{
-              type: "spring",
-              stiffness: 300,
-              damping: 30,
-              mass: 1.5,
+              default: {
+                type: "spring",
+                stiffness: 300,
+                damping: 30,
+                mass: 1.5,
+              },
+              opacity: {
+                duration: 0.38,
+                ease: "easeOut",
+                delay: topbarContentVisible && viewState === "intro" ? 0.68 : 0,
+              },
             }}
             style={{ transformOrigin: "center" }}
           >
@@ -956,18 +941,11 @@ export default function Home() {
                     {([["file", FileIcon], ["spotify", SpotifyIcon], ["youtube", YouTubeIcon]] as const).map(([type, Icon]) => (
                       <motion.button
                         key={type}
-                        className={`relative cursor-pointer p-1.5 rounded-xl transition-colors ${importType === type ? "bg-[rgba(249,87,56,0.12)]" : "hover:bg-[rgba(249,87,56,0.06)]"}`}
+                        className={`cursor-pointer p-1.5 rounded-xl transition-colors ${importType === type ? "bg-[rgba(249,87,56,0.12)]" : "hover:bg-[rgba(249,87,56,0.06)]"}`}
                         onClick={() => setImportType(type as ImportType)}
                         whileTap={{ scale: 0.92 }}
                       >
                         <Icon className={`w-[clamp(18px,1.6vw,24px)] h-[clamp(18px,1.6vw,24px)] transition-opacity duration-200 ${importType === type ? "opacity-100" : "opacity-40"}`} />
-                        {importType === type && (
-                          <motion.div
-                            className="absolute bottom-0 left-1/2 -translate-x-1/2 w-4 h-0.5 rounded-full bg-[#f95738]"
-                            layoutId="import-tab-indicator"
-                            transition={{ type: "spring", stiffness: 400, damping: 30 }}
-                          />
-                        )}
                       </motion.button>
                     ))}
                   </div>
@@ -1016,12 +994,8 @@ export default function Home() {
                             </motion.div>
 
                             {savedAnalyses.length > 0 && (
-                              <div className="flex-1 min-h-0 flex flex-col mt-5">
-                                <div className="flex items-center gap-2 mb-3 shrink-0">
-                                  <Clock className="w-3.5 h-3.5 opacity-50" />
-                                  <span className="text-xs font-semibold opacity-50 tracking-wide uppercase" style={{ fontSize: 10 }}>Previous Analyses</span>
-                                </div>
-                                <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-2">
+                              <div className="flex-1 min-h-0 flex flex-col mt-7">
+                                <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar flex flex-col gap-2">
                                   {savedAnalyses.map((a, idx) => (
                                     <motion.button
                                       key={a.analysis_id}
@@ -1031,17 +1005,11 @@ export default function Home() {
                                       initial={{ opacity: 0, x: -8 }}
                                       animate={{ opacity: 1, x: 0 }}
                                       transition={{ delay: idx * 0.05 }}
-                                      whileHover={{ x: 3 }}
                                     >
                                       <div className="w-7 h-7 rounded-lg bg-[rgba(249,87,56,0.1)] flex items-center justify-center shrink-0 group-hover:bg-[rgba(249,87,56,0.18)] transition-colors">
                                         <Music className="w-3.5 h-3.5 text-[#f95738]/60" />
                                       </div>
                                       <span className="font-medium truncate text-sm flex-1">{a.title}</span>
-                                      {a.created_at && (
-                                        <span className="text-[9px] opacity-35 shrink-0 font-medium">
-                                          {new Date(a.created_at).toLocaleDateString()}
-                                        </span>
-                                      )}
                                     </motion.button>
                                   ))}
                                 </div>

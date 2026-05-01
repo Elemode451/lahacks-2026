@@ -9,6 +9,7 @@ interface BrainSceneProps {
   className?: string;
   flashing?: boolean;
   interactive?: boolean;
+  autoRotate?: boolean;
   activationLevel?: number;
   fingerprint?: Float32Array | null;
   temporalData?: Float32Array | null;
@@ -19,6 +20,7 @@ export default function BrainScene({
   className,
   flashing = false,
   interactive = false,
+  autoRotate = true,
   activationLevel = 0.5,
   fingerprint = null,
   temporalData = null,
@@ -40,6 +42,7 @@ export default function BrainScene({
         <Suspense fallback={null}>
           <BrainMesh
             flashing={flashing}
+            autoRotate={autoRotate}
             activationLevel={activationLevel}
             fingerprint={fingerprint}
             temporalData={temporalData}
@@ -51,9 +54,8 @@ export default function BrainScene({
           target={[0, 0, 0]}
           enableZoom={false}
           enablePan={false}
-          enableRotate={true}
-          autoRotate={!interactive}
-          autoRotateSpeed={0.5}
+          enableRotate={interactive}
+          autoRotate={false}
           minPolarAngle={Math.PI * 0.25}
           maxPolarAngle={Math.PI * 0.75}
         />
