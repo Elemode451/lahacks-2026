@@ -10,12 +10,12 @@ import uuid
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
 
 import numpy as np
-from app.models.schemas import AnalysisSummary, CreatorAnalyzeResponse, KeyInfo, SongInfo
+from app.models.schemas import AnalysisSummary, CreatorAnalyzeResponse, KeyInfo, SongInfo, SongMatch
 from app.services.spotify import get_audio_features
 from app.services.music_theory import key_name, mood_for_key
 from app.services.audio import cleanup_audio, save_uploaded_audio
 from app.services.emotions import map_region_scores_to_emotions
-from app.services.song_cache import record_user_interaction, save_analysis, store_cached
+from app.services.song_cache import find_similar_songs, record_user_interaction, save_analysis, store_cached
 from app.services.tribe import (
     _average_timelines,
     _resample_raw,
@@ -128,8 +128,39 @@ async def analyze_creator_track(
             f"Peak activation occurs at segment {peak_seg}. {vibe}"
         )
 
-        # TODO: find top matches from catalog DB
-        top_matches = []
+        # Compute lookup key early so we can exclude ourselves from similar songs
+        lookup_key = _upload_lookup_key(audio.filename or "upload.wav", file_bytes)
+
+        # Find similar songs from the catalog by cosine similarity on region scores
+        try:
+            similar_results, _ = await asyncio.to_thread(
+                find_similar_songs,
+                target_scores=song_fp.region_scores,
+                exclude_keys={lookup_key},
+                n=10,
+            )
+            top_matches = [
+                SongMatch(
+                    song=SongInfo(
+                        song_id=r["lookup_key"],
+                        title=r["title"],
+                        artist=r["artist"],
+                    ),
+                    similarity_score=r["similarity"],
+                    matching_regions=[
+                        region for region in r.get("region_scores", {})
+                        if abs(
+                            getattr(song_fp.region_scores, region, 0.0)
+                            - float(r["region_scores"].get(region, 0.0))
+                        ) < 0.01
+                    ],
+                    source="brain_similarity",
+                )
+                for r in similar_results
+            ]
+        except Exception:
+            logger.warning("Failed to find similar songs for creator upload")
+            top_matches = []
 
         result = CreatorAnalyzeResponse(
             analysis_id=analysis_id,
@@ -150,7 +181,6 @@ async def analyze_creator_track(
         )
 
         # Persist to song_cache so the recommendation engine can find it
-        lookup_key = _upload_lookup_key(audio.filename or "upload.wav", file_bytes)
         try:
             await asyncio.to_thread(
                 store_cached,
@@ -177,6 +207,7 @@ async def analyze_creator_track(
             "timeline_region_scores": song_fp.timeline_region_scores,
             "peak_segment": peak_seg,
             "summary": summary,
+            "emotional_profile": emotional_profile,
         }
         asyncio.get_running_loop().run_in_executor(
             None,

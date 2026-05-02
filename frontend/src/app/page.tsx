@@ -3,7 +3,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import dynamic from "next/dynamic";
-import { X, Send, LogOut, Brain, Music } from "lucide-react";
+import { X, Send, LogOut, Brain, Music, Share2, Check, Users } from "lucide-react";
 import {
   SeratoneLogo,
   SoundBarsIcon,
@@ -33,7 +33,12 @@ const ChatInterface = dynamic(() => import("@/components/ChatInterface"), {
 const SongRecommendations = dynamic(() => import("@/components/SongRecommendations"), {
   ssr: false,
 });
-
+const KeyInfoDisplay = dynamic(() => import("@/components/KeyInfo"), {
+  ssr: false,
+});
+const FriendsActivity = dynamic(() => import("@/components/FriendsActivity"), {
+  ssr: false,
+});
 type ViewState = "intro" | "importing" | "analyzing" | "processing" | "analysis";
 type ImportType = "file" | "spotify" | "youtube";
 
@@ -45,6 +50,7 @@ export default function Home() {
   const router = useRouter();
 
   const [viewState, setViewState] = useState<ViewState>("intro");
+  const [showFriends, setShowFriends] = useState(false);
   const [importType, setImportType] = useState<ImportType>("file");
   const [songs, setSongs] = useState<string[]>([]);
   const [inputValue, setInputValue] = useState("");
@@ -83,6 +89,9 @@ export default function Home() {
   const [recommendations, setRecommendations] = useState<RecommendedSong[]>([]);
   const [recsLoading, setRecsLoading] = useState(false);
   const seenSongIdsRef = useRef<Set<string>>(new Set());
+
+  // Share state
+  const [shareStatus, setShareStatus] = useState<"idle" | "sharing" | "copied">("idle");
 
   useEffect(() => {
     if (!loading && !user) {
@@ -221,6 +230,14 @@ export default function Home() {
       panelH: Math.min(contentH * 0.88, 650),
       panelX: (vw - Math.min(vw * 0.72, 920)) / 2,
       panelY: TOPBAR_H + (contentH - Math.min(contentH * 0.88, 650)) / 2,
+      friendsPillW: 140,
+      friendsPillH: 50,
+      friendsPillX: vw * 0.5 - 70,
+      friendsPillY: TOPBAR_H - 25,
+      friendsPanelW: Math.min(vw * 0.42, 480),
+      friendsPanelH: Math.min(contentH * 0.78, 550),
+      friendsPanelX: 32,
+      friendsPanelY: TOPBAR_H + (contentH - Math.min(contentH * 0.78, 550)) / 2,
       rightPanelW: halfW,
     };
   }, [vw, vh]);
@@ -275,6 +292,8 @@ export default function Home() {
     setRecommendations([]);
     setRecsLoading(false);
     seenSongIdsRef.current.clear();
+    setShareStatus("idle");
+    setShowFriends(false);
   };
 
   const handleSignOut = async () => {
@@ -389,6 +408,104 @@ export default function Home() {
     [],
   );
 
+  // Refresh recommendations
+  const handleRefreshRecommendations = useCallback(() => {
+    const result = analysisResult;
+    if (!result) return;
+    const analyzedSongs = (result as Record<string, unknown>).songs as Array<{ song_id?: string; spotify_id?: string }> | undefined;
+    if (analyzedSongs?.length) {
+      const first = analyzedSongs[0];
+      const cacheKey = first.spotify_id
+        ? `spotify:${first.spotify_id}`
+        : first.song_id;
+      if (cacheKey) {
+        fetchRecommendations(cacheKey);
+      }
+    }
+  }, [analysisResult, fetchRecommendations]);
+
+  // Fetch collaborative-only recommendations (triggered periodically by SongRecommendations)
+  const handleRequestCollaborative = useCallback(async () => {
+    const token = session?.access_token ?? null;
+    if (!token) return;
+
+    try {
+      const collabRes = await apiFetch(
+        "/recommendations/collaborative",
+        { method: "POST", body: JSON.stringify({ n: 5 }) },
+        token,
+      );
+      if (collabRes.ok) {
+        const data = await collabRes.json();
+        const collabSongs: RecommendedSong[] = (data.recommendations ?? []).map(
+          (r: { song: { song_id: string; title: string; artist: string }; similarity_score: number; source: string }) => ({
+            song_id: r.song.song_id,
+            title: r.song.title,
+            artist: r.song.artist,
+            similarity_score: r.similarity_score,
+            source: r.source ?? "collaborative",
+          }),
+        );
+
+        const seen = seenSongIdsRef.current;
+        setRecommendations((prev) => {
+          const existingIds = new Set(prev.map((s) => s.song_id));
+          const newSongs = collabSongs.filter(
+            (s) => !existingIds.has(s.song_id) && !seen.has(s.song_id),
+          );
+          for (const s of newSongs) seen.add(s.song_id);
+          return [...prev, ...newSongs];
+        });
+      }
+    } catch (err) {
+      console.error("Failed to fetch collaborative recs:", err);
+    }
+  }, [session]);
+
+  // Share analysis handler
+  const handleShareAnalysis = useCallback(async () => {
+    const analysisId = (analysisResult as Record<string, unknown> | null)?.analysis_id as string | undefined;
+    if (!analysisId || !session?.access_token) return;
+
+    setShareStatus("sharing");
+    try {
+      const res = await apiFetch(
+        `/analyses/${analysisId}/share`,
+        { method: "POST" },
+        session.access_token,
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const url = `${window.location.origin}${data.share_url}`;
+        await navigator.clipboard.writeText(url);
+        setShareStatus("copied");
+        setTimeout(() => setShareStatus("idle"), 2500);
+      } else {
+        setShareStatus("idle");
+      }
+    } catch {
+      setShareStatus("idle");
+    }
+  }, [analysisResult, session]);
+
+  // Handle clicking a friend's song in the feed
+  const handleFriendSongClick = useCallback(
+    (songKey: string) => {
+      const isSpotify = songKey.startsWith("spotify:");
+      if (isSpotify) {
+        const spotifyId = songKey.replace("spotify:", "");
+        const url = `https://open.spotify.com/track/${spotifyId}`;
+        setSongs([url]);
+        setImportType("spotify");
+      } else {
+        setSongs([songKey]);
+        setImportType("youtube");
+      }
+      setViewState("importing");
+    },
+    [],
+  );
+
   // ── Real API: Creator Mode (file upload) ──
   const handleCreatorAnalyze = useCallback(async () => {
     if (uploadedFiles.length === 0) return;
@@ -423,6 +540,26 @@ export default function Home() {
       setProcessingProgress(1);
       setBrainFlashing(false);
       setViewState("analysis");
+
+      // Populate recommendations directly from top_matches in the response
+      // (creator mode uses upload:{hash} cache keys which don't match song_id,
+      //  so we can't call fetchRecommendations — use the already-computed matches)
+      const topMatches = result.top_matches as Array<{
+        song: { song_id: string; title: string; artist: string };
+        similarity_score: number;
+        source?: string;
+      }> | undefined;
+      if (topMatches?.length) {
+        setRecommendations(
+          topMatches.map((m) => ({
+            song_id: m.song.song_id,
+            title: m.song.title,
+            artist: m.song.artist,
+            similarity_score: m.similarity_score,
+            source: m.source ?? "brain_similarity",
+          })),
+        );
+      }
     } catch (err) {
       setProcessingStatus(`Failed: ${err instanceof Error ? err.message : "Unknown error"}`);
       setBrainFlashing(false);
@@ -508,7 +645,26 @@ export default function Home() {
               setAnalysisResult(data);
               setBrainFlashing(false);
               setViewState("analysis");
-              // Fetch recommendations for the first analyzed song
+
+              // Populate recommendations from top_matches if available (works even with small catalog)
+              const topMatches = data.top_matches as Array<{
+                song: { song_id: string; title: string; artist: string };
+                similarity_score: number;
+                source?: string;
+              }> | undefined;
+              if (topMatches?.length) {
+                setRecommendations(
+                  topMatches.map((m: { song: { song_id: string; title: string; artist: string }; similarity_score: number; source?: string }) => ({
+                    song_id: m.song.song_id,
+                    title: m.song.title,
+                    artist: m.song.artist,
+                    similarity_score: m.similarity_score,
+                    source: m.source ?? "brain_similarity",
+                  })),
+                );
+              }
+
+              // Also fetch recommendations via API (may find additional matches)
               const analyzedSongs = data.songs as Array<{ song_id?: string; spotify_id?: string }> | undefined;
               if (analyzedSongs?.length) {
                 const first = analyzedSongs[0];
@@ -566,33 +722,44 @@ export default function Home() {
 
   useEffect(() => () => cancelAnalyzeTimeout(), []);
 
-  // Build overview text from analysis result, enriched with emotional profile data
+  // Build concise overview for Sera's initial message (1-2 sentences max)
   const overviewText = useMemo(() => {
-    const fallback =
-      "This music fits a limbic-dominant profile with strong auditory cortex engagement. High introspective alignment suggests deep default-mode network resonance characteristic of emotional processing music.";
+    const fallback = "Strong auditory cortex engagement with deep emotional resonance.";
     if (!analysisResult) return fallback;
 
-    const emotionalProfile = analysisResult.emotional_profile as
-      | { summary?: string; dominant_emotions?: string[] }
+    const regionLabels: Record<string, string> = {
+      auditory: "auditory cortex",
+      superior_temporal: "superior temporal gyrus",
+      temporo_parietal: "temporo-parietal junction",
+      inferior_frontal: "inferior frontal cortex",
+      multisensory: "multisensory integration areas",
+    };
+
+    const scores = (analysisResult.combined_region_scores ?? analysisResult.region_scores) as
+      | Record<string, number>
       | undefined;
-
-    let text =
-      emotionalProfile?.summary ??
-      (analysisResult.summary as string | undefined) ??
-      (analysisResult.vibe_description as string | undefined) ??
-      fallback;
-
-    const dominant = emotionalProfile?.dominant_emotions;
-    if (dominant && dominant.length > 0) {
-      const formatted = dominant.map((emotion) => emotion.toLowerCase());
-      const emotionList =
-        formatted.length <= 2
-          ? formatted.join(" and ")
-          : `${formatted.slice(0, -1).join(", ")}, and ${formatted[formatted.length - 1]}`;
-      text += ` The primary emotional responses predicted are ${emotionList}.`;
+    let regionSentence = "";
+    if (scores) {
+      const ranked = Object.entries(scores)
+        .filter(([k, v]) => k !== "whole_cortex" && typeof v === "number")
+        .sort(([, a], [, b]) => b - a);
+      const topRegions = ranked.slice(0, 2).map(([k]) => regionLabels[k] ?? k.replace(/_/g, " "));
+      if (topRegions.length > 0) {
+        regionSentence = `Strongest activation in ${topRegions.join(" and ")}.`;
+      }
     }
 
-    return text;
+    const emotionalProfile = analysisResult.emotional_profile as
+      | { dominant_emotions?: string[] }
+      | undefined;
+    let emotionSentence = "";
+    if (emotionalProfile?.dominant_emotions?.length) {
+      const top2 = emotionalProfile.dominant_emotions.slice(0, 2).map((e) => e.toLowerCase());
+      emotionSentence = `Evoking ${top2.join(" and ")}.`;
+    }
+
+    const parts = [regionSentence, emotionSentence].filter(Boolean);
+    return parts.length > 0 ? parts.join(" ") : fallback;
   }, [analysisResult]);
 
   const topbarHidden = viewState === "analysis" || isLeavingForLogin;
@@ -731,12 +898,54 @@ export default function Home() {
                   animate={{ opacity: 1 }}
                   transition={{ duration: 0.5, delay: 0.6, ease: panelEase }}
                 >
-                  <div className="flex w-full justify-center">
+                  <div className="flex w-full items-start justify-center gap-3">
                     <MusicRadarChart
                       data={radarData}
-                      className="w-full max-w-[392px]"
+                      className="w-full max-w-[392px] min-w-0"
                       style={{ height: "min(296px, 32vh)" }}
                     />
+                    <motion.button
+                      onClick={handleShareAnalysis}
+                      disabled={
+                        shareStatus === "sharing" ||
+                        !session?.access_token ||
+                        !(analysisResult as Record<string, unknown> | null)?.analysis_id
+                      }
+                      className="mt-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[rgba(249,87,56,0.18)] bg-[rgba(249,87,56,0.08)] text-[#f95738]/75 transition-all duration-200 hover:bg-[rgba(249,87,56,0.14)] disabled:pointer-events-none disabled:opacity-25"
+                      title={shareStatus === "copied" ? "Link copied" : "Share analysis"}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      <AnimatePresence mode="wait" initial={false}>
+                        {shareStatus === "copied" ? (
+                          <motion.span
+                            key="copied"
+                            initial={{ opacity: 0, scale: 0.7 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.7 }}
+                          >
+                            <Check className="h-4 w-4" />
+                          </motion.span>
+                        ) : shareStatus === "sharing" ? (
+                          <motion.span
+                            key="sharing"
+                            className="h-4 w-4 rounded-full border-2 border-current border-t-transparent animate-spin"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                          />
+                        ) : (
+                          <motion.span
+                            key="share"
+                            initial={{ opacity: 0, scale: 0.7 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.7 }}
+                          >
+                            <Share2 className="h-4 w-4" />
+                          </motion.span>
+                        )}
+                      </AnimatePresence>
+                    </motion.button>
                   </div>
                 </motion.section>
 
@@ -747,9 +956,15 @@ export default function Home() {
                   transition={{ duration: 0.5, delay: 0.7, ease: panelEase }}
                 >
                   <div className="flex min-h-0 max-w-[520px] flex-col justify-between gap-8">
-                    <p className="pl-4 text-[11px] font-medium tracking-[-0.02em] text-[#0d3b66]/42">
-                      overview
-                    </p>
+                    <div className="space-y-3 pl-4">
+                      <p className="text-[11px] font-medium tracking-[-0.02em] text-[#0d3b66]/42">
+                        overview
+                      </p>
+                      <KeyInfoDisplay
+                        analysisResult={analysisResult}
+                        className="max-w-[420px]"
+                      />
+                    </div>
                     <div className="flex min-h-0 flex-1 flex-col justify-end">
                       <ChatInterface
                         overview={overviewText}
@@ -767,6 +982,8 @@ export default function Home() {
                         recommendations={recommendations}
                         loading={recsLoading}
                         onSongClick={handleRecommendedSongClick}
+                        onRefresh={handleRefreshRecommendations}
+                        onRequestCollaborative={handleRequestCollaborative}
                       />
                     </div>
                   </div>
@@ -870,6 +1087,103 @@ export default function Home() {
         )}
       </AnimatePresence>
 
+      {/* Friends Button / Panel — pill-to-panel like import, on the left */}
+      <AnimatePresence>
+        {layoutReady && !isLeavingForLogin && (viewState === "intro" || showFriends) && !["processing", "analyzing", "analysis"].includes(viewState) && (
+          <motion.div
+            className="absolute bg-[rgba(13,59,102,0.14)] overflow-hidden z-20 shadow-sm backdrop-blur-[40px] border border-[rgba(13,59,102,0.22)]"
+            initial={{
+              width: showFriends ? layout.friendsPanelW : layout.friendsPillW,
+              height: showFriends ? layout.friendsPanelH : layout.friendsPillH,
+              x: showFriends ? layout.friendsPanelX : layout.friendsPillX,
+              y: showFriends ? layout.friendsPanelY : layout.friendsPillY,
+              borderRadius: showFriends ? 50 : 100,
+              opacity: 0,
+              scale: 1,
+            }}
+            animate={{
+              width: showFriends ? layout.friendsPanelW : layout.friendsPillW,
+              height: showFriends ? layout.friendsPanelH : layout.friendsPillH,
+              x: showFriends ? layout.friendsPanelX : layout.friendsPillX,
+              y: showFriends ? layout.friendsPanelY : layout.friendsPillY,
+              borderRadius: showFriends ? 50 : 100,
+              opacity: topbarContentVisible ? 1 : 0,
+              scale: 1,
+            }}
+            exit={{
+              opacity: 0,
+              scale: 0.95,
+              transition: { duration: 0.4 },
+            }}
+            transition={{
+              default: {
+                type: "spring",
+                stiffness: 300,
+                damping: 30,
+                mass: 1.5,
+              },
+              opacity: {
+                duration: 0.38,
+                ease: "easeOut",
+                delay: topbarContentVisible && !showFriends ? 0.68 : 0,
+              },
+            }}
+            style={{ transformOrigin: "center" }}
+          >
+            {!showFriends ? (
+              <motion.button
+                className="w-full h-full flex items-center justify-center gap-3 text-[#0d3b66]/60 hover:bg-[rgba(13,59,102,0.08)] transition-colors cursor-pointer"
+                onClick={() => setShowFriends(true)}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0, transition: { duration: 0.1 } }}
+                whileHover={{ scale: 1.04 }}
+                whileTap={{ scale: 0.96 }}
+              >
+                <span className="font-semibold text-xl tracking-[-0.8px]" style={{ fontFamily: "var(--font-display)" }}>friends</span>
+                <Users className="size-5" />
+              </motion.button>
+            ) : (
+              <motion.div
+                className="absolute flex flex-col"
+                style={{ top: "7.4%", left: "8.7%", right: "8.9%", bottom: "7.2%" }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.2, duration: 0.3 }}
+              >
+                <div className="flex justify-between items-start mb-4">
+                  <h2 className="text-[#0d3b66]/70 text-[clamp(18px,2vw,26px)] tracking-[-1px] leading-none" style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}>friends:</h2>
+                  <motion.button
+                    className="text-[#0d3b66]/30 hover:text-[#0d3b66]/60 transition-colors p-1 rounded-lg cursor-pointer"
+                    onClick={() => setShowFriends(false)}
+                    whileTap={{ scale: 0.9 }}
+                  >
+                    <X className="w-4 h-4" />
+                  </motion.button>
+                </div>
+                <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+                  <FriendsActivity
+                    token={session?.access_token ?? null}
+                    onSongClick={(songKey) => {
+                      setShowFriends(false);
+                      handleFriendSongClick(songKey);
+                    }}
+                  />
+                </div>
+              </motion.div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Click Outside Overlay — dismiss friends panel */}
+      {showFriends && (
+        <div
+          className="absolute inset-0 z-[15]"
+          onClick={() => setShowFriends(false)}
+        />
+      )}
+
       {/* Import Button / Panel — spring expansion */}
       <AnimatePresence>
         {layoutReady && !isLeavingForLogin && (viewState === "intro" || viewState === "importing") && (
@@ -916,7 +1230,7 @@ export default function Home() {
             {viewState === "intro" ? (
               <motion.button
                 className="w-full h-full flex items-center justify-center gap-3 text-[#f95738] hover:bg-[rgba(249,87,56,0.3)] transition-colors cursor-pointer"
-                onClick={() => setViewState("importing")}
+                onClick={() => { setShowFriends(false); setViewState("importing"); }}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0, transition: { duration: 0.1 } }}
